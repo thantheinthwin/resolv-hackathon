@@ -113,11 +113,8 @@ def _sharp(frame: SanitizedFrame) -> bool:
     gray = cv2.cvtColor(frame.image, cv2.COLOR_BGR2GRAY)
     height, width = gray.shape
     if width > 320:
-        gray = cv2.resize(
-            gray,
-            (320, max(1, round(height * 320 / width))),
-            interpolation=cv2.INTER_AREA,
-        )
+        scaled_height = max(1, round(height * 320 / width))
+        gray = cv2.resize(gray, (320, scaled_height), interpolation=cv2.INTER_AREA)
     return float(cv2.Laplacian(gray, cv2.CV_64F).var()) >= MIN_SHARPNESS
 
 
@@ -220,7 +217,9 @@ def _opening_checks(
     observation: OpeningObservation | None,
 ) -> tuple[dict[str, IntegrityCheck], list[IntegrityFlag]]:
     unknown = IntegrityCheck(
-        status="unclear", confidence=0.0, note_en="No grounded opening observation available."
+        status="unclear",
+        confidence=0.0,
+        note_en="No grounded opening observation available.",
     )
     if observation is None or not any(
         frame.timestamp_seconds <= OPENING_WINDOW_SECONDS
@@ -239,7 +238,9 @@ def _opening_checks(
     flags: list[IntegrityFlag] = []
     if observation.seal_confidence < 0.5 or observation.seal_state == "unclear":
         seal = IntegrityCheck(
-            status="unclear", confidence=0.0, note_en="Parcel seal cannot be assessed."
+            status="unclear",
+            confidence=0.0,
+            note_en="Parcel seal cannot be assessed.",
         )
     elif observation.seal_state == "opened":
         note = "Parcel seal appears opened before the filmed unboxing."
@@ -265,7 +266,9 @@ def _opening_checks(
     observed = _normalize_id(observation.observed_order_id or "")
     if len(expected) < 5 or len(observed) < 5 or observation.label_confidence < 0.5:
         label = IntegrityCheck(
-            status="unclear", confidence=0.0, note_en="Order label is not readable or reliable."
+            status="unclear",
+            confidence=0.0,
+            note_en="Order label is not readable or reliable.",
         )
     elif not _within_one_edit(expected, observed):
         note = "Visible order code differs from the expected order code."
@@ -303,7 +306,5 @@ def assess_integrity(
     _check_frames(frames)
     continuity, cut_flags = _continuity(frames)
     opening_checks, opening_flags = _opening_checks(frames, expected_order_id, observation)
-    return IntegrityReport(
-        flags=cut_flags + opening_flags,
-        checks={"continuity": continuity, **opening_checks},
-    )
+    checks = {"continuity": continuity, **opening_checks}
+    return IntegrityReport(flags=cut_flags + opening_flags, checks=checks)
