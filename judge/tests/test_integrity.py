@@ -187,6 +187,16 @@ def test_opening_findings_snap_to_supplied_frame_timestamp() -> None:
     assert report.flags[0].t == 0.0
 
 
+def test_exact_opening_time_wins_over_another_frame_within_tolerance() -> None:
+    report = assess_integrity(
+        [frame(1, 0.0), frame(2, 0.04)],
+        expected_order_id="UJ-48213",
+        observation=opening(t=0.04, seal="opened"),
+    )
+    assert report.checks["seal"].findings[0].t == 0.04
+    assert report.flags[0].t == 0.04
+
+
 def test_nonmatching_two_character_ocr_errors_are_flagged() -> None:
     report = assess_integrity(
         steady_frames(), expected_order_id="UJ-48213", observation=opening(code="UJ-482BB")

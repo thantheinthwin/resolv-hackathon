@@ -10,14 +10,26 @@ The two contracts are where our work meets. PLAN.md section 6 has every field.
 - **The API** (API to web): FastAPI's OpenAPI spec is the source of truth.
   After any API change, run `npm run gen:api` in `web/` to regenerate
   `web/src/api/types.ts`. Never edit that file by hand.
-- Until the real judge is merged, `api/` uses `FakeJudge`, which returns
-  `judge/fixtures/verdict.sample.json`.
+- Upload jobs sample and sanitize the recording and run local integrity checks.
+  With no reviewed model inputs, comparisons stay unclear. The seeded sample
+  case still uses the fixture.
+- For model-backed judging, create the case, configure the judge as described
+  in [judge security](../judge/SECURITY.md), then run
+  `.venv/bin/python -m api.review_video CASE_ID VIDEO` on the API host before
+  uploading. Inspect the sanitized frames, listing photos and order details and
+  approve each requested scope, including observation, complaint and reason text. Decline if
+  personal data remains. Use only consented recordings. The job reuses this
+  reviewed result for the same case, recording and catalog inputs. Another
+  recording takes the local-only path. Without a grounded opening observation
+  the seal remains unclear and the verdict requires human review.
+- Evidence paths in a verdict are relative to `/api/files/cases/{case_id}/`.
+  The protected file route serves only the images referenced by that verdict.
 - Never rename or remove a contract field to fix one bug. Say it in the team
   chat first.
 
 ## Verify a boundary change
 
-Use [the planned models and routes](PLAN.md#6-data-and-contracts) for design and the running API schema at `/openapi.json` for implemented HTTP operations. The setup baseline exposes sample case routes, the shared models, a sample verdict, the client generator, and `make check`. Upload operations are documented in OpenAPI and return 501 until the next integration checkpoint. Report missing checks explicitly.
+Use [the planned models and routes](PLAN.md#6-data-and-contracts) for design and the running API schema at `/openapi.json` for implemented HTTP operations. The setup baseline exposes sample case routes, the shared models, a sample verdict, the client generator, and `make check`. Desktop and one-time phone uploads share video intake and persisted progress events. Listing creation accepts a multipart form with repeated photo and option fields. Report missing checks explicitly.
 
 | Boundary | Producer check | Consumer check |
 | --- | --- | --- |

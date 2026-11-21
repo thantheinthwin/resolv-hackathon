@@ -1,0 +1,12 @@
+name: Request quality review
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize, ready_for_review]
+permissions: {}
+jobs:
+  request:
+    if: ${{ !github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo 'Ready for advisory quality review'

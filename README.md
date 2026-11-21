@@ -20,9 +20,34 @@ in the `X-Demo-Passcode` header when exercising `/api` routes directly.
 
 Open `http://localhost:3000` and choose **View your orders**. The seeded shop
 case is available through `/api/shop/cases/UJ-SAMPLE`. It contains a sample
-verdict for testing the integration. Video submission and live job progress
-are scheduled for the next checkpoint.
+verdict for testing the integration. To exercise a new case through the API, submit a multipart
+`video` file to `POST /api/cases/{id}/video` and follow
+`GET /api/cases/{id}/events`. Accepted uploads enter `checking`; the shop
+detail exposes the verdict when the case reaches `ready`. A failed case
+accepts a replacement upload. Run one API process per data directory. It
+resumes interrupted jobs on startup and runs up to two judges at once.
 
 Run `make check` for the Python and web checks. After changing an API route,
 run `npm --prefix web run gen:api` against the running API and check the
 generated TypeScript diff.
+
+## Advisory PR quality review
+
+The OpenAI reviewer checks ready, same-repository pull requests into `main` for
+duplicated rules, unnecessary abstractions, and responsibilities that are hard
+to change independently. The [review rubric](.github/quality/rubric.md) is
+versioned with the code. Findings appear as a review on the inspected commit.
+The existing competition checks and teammate review still apply.
+
+In GitHub Settings → Environments, use the `quality-review` environment,
+restrict deployments to `main`, and add an environment secret named
+`OPENAI_CODE_QUALITY_REVIEWER_KEY`. Use a dedicated OpenAI project service-account key with
+`api.agents.read`, `api.agents.write`, and `api.responses.write`. Set the
+optional environment variable `OPENAI_MODEL` to select an Agents API model.
+
+Once both workflows are on `main`, open a source-changing PR or mark one ready
+for review. The privileged job reads the PR patch through GitHub and runs the
+reviewer from the default branch. It sends source patches and bounded context
+to OpenAI. Large or incomplete patches produce a workflow error. Drafts,
+forks, and changes outside the supported source paths skip paid inference.
+Run `node --test .github/quality/review.test.mjs` for the offline reviewer checks.
