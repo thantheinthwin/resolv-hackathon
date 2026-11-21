@@ -114,14 +114,19 @@ def _cache_file(folder: Path, key: str) -> Path:
     return folder / f"{key}.json"
 
 
-def _cached_check(folder: Path, key: str) -> Check | None:
+def _cached_check(folder: Path, key: str, timestamps: Sequence[float]) -> Check | None:
     file = _cache_file(folder, key)
     if file.is_symlink():
         return None
     try:
-        return Check.model_validate_json(file.read_bytes())
+        check = Check.model_validate_json(file.read_bytes())
     except (OSError, ValueError):
         return None
+    if any(finding.t not in timestamps for finding in check.findings):
+        return None
+    if check.status == "flag" and not check.findings:
+        return None
+    return check
 
 
 def _write_cache(folder: Path, key: str, result: Check) -> None:
@@ -187,7 +192,7 @@ def _compare_one(
     }
     cache_key = hashlib.sha256(key_seed + check_name.encode("utf-8")).hexdigest()
     if cache_dir is not None:
-        existing = _cached_check(cache_dir, cache_key)
+        existing = _cached_check(cache_dir, cache_key, timestamps)
         if existing is not None:
             return existing
 

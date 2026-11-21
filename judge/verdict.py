@@ -29,22 +29,21 @@ class EvidenceQuality(BaseModel):
     warm_light: bool = False
 
 
-def _deciding_check(claim_type: ClaimType, checks: dict[str, Check]) -> tuple[str, Check, float]:
+def _deciding_check(claim_type: ClaimType, checks: dict[str, Check]) -> tuple[Check, float]:
     unknown = Check(status="unclear", confidence=0, findings=[])
     if claim_type != "wrong_item":
-        name = CLAIM_CHECK[claim_type]
-        check = checks.get(name, unknown)
-        return name, check, check.confidence
+        check = checks.get(CLAIM_CHECK[claim_type], unknown)
+        return check, check.confidence
 
     product = checks.get("listing", unknown)
     if product.status != "pass":
-        return "listing", product, product.confidence
+        return product, product.confidence
 
     variant = checks.get("variant", unknown)
     confidence = variant.confidence
     if variant.status == "pass":
         confidence = min(product.confidence, confidence)
-    return "variant", variant, confidence
+    return variant, confidence
 
 
 def _reason(
@@ -106,6 +105,11 @@ def decide_verdict(
     checks.update(
         (name, Check.model_validate(check.model_dump())) for name, check in integrity.checks.items()
     )
+    variant = checks.get("variant")
+    if quality.warm_light and variant is not None:
+        checks["variant"] = variant.model_copy(
+            update={"confidence": min(variant.confidence, WARM_VARIANT_CAP)}
+        )
     flags = [Flag.model_validate(flag.model_dump()) for flag in integrity.flags]
     seal = integrity.checks.get("seal")
     continuity = integrity.checks.get("continuity")
@@ -117,13 +121,11 @@ def decide_verdict(
         or continuity.status == "unclear"
     )
 
-    name, deciding, deciding_confidence = _deciding_check(claim_type, checks)
+    deciding, deciding_confidence = _deciding_check(claim_type, checks)
     leaning = LEANING[deciding.status]
     confidence = min(claim_confidence, seal.confidence if seal else 0, deciding_confidence)
     if quality.blurred or quality.dark or quality.item_not_fully_shown:
         confidence = min(confidence, LIMITED_EVIDENCE_CAP)
-    if name == "variant" and quality.warm_light:
-        confidence = min(confidence, WARM_VARIANT_CAP)
 
     counterfeit = claim_type == "counterfeit"
     clear = (
