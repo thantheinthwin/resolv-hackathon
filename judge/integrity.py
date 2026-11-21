@@ -238,7 +238,9 @@ def _opening_checks(
     )
     flags: list[IntegrityFlag] = []
     if observation.seal_confidence < 0.5 or observation.seal_state == "unclear":
-        seal = IntegrityCheck(status="unclear", confidence=0.0, note_en="Parcel seal cannot be assessed.")
+        seal = IntegrityCheck(
+            status="unclear", confidence=0.0, note_en="Parcel seal cannot be assessed."
+        )
     elif observation.seal_state == "opened":
         note = "Parcel seal appears opened before the filmed unboxing."
         flags.append(IntegrityFlag(type="seal_opened", t=timestamp, note=note))
