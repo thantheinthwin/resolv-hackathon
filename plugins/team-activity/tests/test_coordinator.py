@@ -6,7 +6,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 coordinator = importlib.import_module("plugins.team-activity.coordinator")
-TEAM = {"Authorization": "Bearer test-only"}
+TOKEN = "test-only-team-credential-for-coordinator"
+TEAM = {"Authorization": f"Bearer {TOKEN}"}
 A = {**TEAM, "X-Activity-Session": "a" * 64}
 B = {**TEAM, "X-Activity-Session": "b" * 64}
 
@@ -23,7 +24,7 @@ def task(name: str, path: str) -> dict:
 
 @pytest.fixture
 def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
-    monkeypatch.setenv("TEAM_ACTIVITY_TOKEN", "test-only")
+    monkeypatch.setenv("TEAM_ACTIVITY_TOKEN", TOKEN)
     monkeypatch.setenv("TEAM_ACTIVITY_DB", str(tmp_path / "activity.sqlite3"))
     return TestClient(coordinator.create_app())
 
@@ -73,3 +74,12 @@ def test_authentication_and_path_validation(client: TestClient) -> None:
     assert client.put("/claim", headers=TEAM, json=task("Ama", "api")).status_code == 422
     for path in ["../api", "/api", "api/*", "C:\\Users"]:
         assert client.put("/claim", headers=A, json=task("Ama", path)).status_code == 422
+
+
+@pytest.mark.parametrize("invalid", ["", "short", " " * 32, "x" * 31 + "\n", "ก" * 32])
+def test_invalid_team_credentials_fail_startup(
+    monkeypatch: pytest.MonkeyPatch, invalid: str
+) -> None:
+    monkeypatch.setenv("TEAM_ACTIVITY_TOKEN", invalid)
+    with pytest.raises(ValueError, match="32 visible ASCII"):
+        coordinator.create_app()

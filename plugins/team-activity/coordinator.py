@@ -57,8 +57,8 @@ def overlaps(left: str, right: str) -> bool:
 
 def create_app() -> FastAPI:
     token = os.environ["TEAM_ACTIVITY_TOKEN"]
-    if not token or not token.isascii():
-        raise ValueError("Set TEAM_ACTIVITY_TOKEN to a nonempty ASCII credential")
+    if len(token) < 32 or not all(33 <= ord(c) <= 126 for c in token):
+        raise ValueError("TEAM_ACTIVITY_TOKEN requires at least 32 visible ASCII characters")
     db_path = Path(os.environ.get("TEAM_ACTIVITY_DB", "data/team-activity.sqlite3"))
     db_path.parent.mkdir(parents=True, exist_ok=True)
     with closing(sqlite3.connect(db_path)) as db, db:
