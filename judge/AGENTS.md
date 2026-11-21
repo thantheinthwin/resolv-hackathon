@@ -40,10 +40,9 @@ background job and its return-versus-disk validation can stay in place.
 2. Keep `case_dir/video.mp4` and the case inputs stable for a job and its
    retries. Pass optional `redactions_by_timestamp` keyed by exact timestamps
    from `judge.sampling.sample_frames`. Supply an optional
-   `OpeningObservation` from trusted local inspection of an exact sampled
-   frame within the first ten seconds. Read any needed order code locally
-   and mask the label. The opening observation and order ID stay local.
-   Without the opening observation, an unassessed seal forces human review.
+   `OpeningObservation` from trusted local inspection or use the
+   [local opening reviewer](#local-opening-review). The opening observation
+   and order ID stay local. Without it, an unassessed seal forces human review.
 3. Install the API requirements, which include `judge/requirements.txt`, and
    set `OPENAI_API_KEY` and `OPENAI_MODEL` in the app process using the
    [local setup guide](SECURITY.md). An injected `client` and `model` allow
@@ -82,7 +81,44 @@ complaint-blind observation and listing comparison, complaint grounding,
 deterministic verdict, exact-timestamp evidence, and bilingual reasons. The
 worker uses the same bounded model frame subset for the matcher and evidence
 pack. Grounded complaint links put relevant evidence first and scope reason
-selection when they match the deciding check. The API approval UI, local
-opening-observation producer, and real upload verification remain integration
-work. The one-argument fixture path
-is for case directories without an uploaded `video.mp4`.
+selection when they match the deciding check. API approval, the host reviewer
+hook, and real upload verification remain integration work. The one-argument
+fixture path is for case directories without an uploaded `video.mp4`.
+
+### Local opening review
+
+On the trusted host, add the opening prompt to the operator's pre-upload
+review command. For example, the API adapter can use:
+
+```python
+import judge
+from judge.opening_review import prompt_opening_review
+
+verdict = judge.run(
+    case_dir,
+    inputs,
+    opening_review=prompt_opening_review,
+    review=review,
+)
+```
+
+Call this from the operator's local session. The default preview uses a
+locally installed `ffplay` window and streams the sampled image through a pipe.
+A host viewer can supply `show(frame)` instead. The early previews are private,
+may contain unredacted data, and must stay off disk, remote model requests,
+logs, and public routes. Close the preview to return to the terminal. Use
+`back` to inspect a different frame or press Enter at frame selection to skip.
+
+Use a frame before the buyer begins opening the parcel. Select `intact` or
+`opened` only when clearly visible. Select `unclear` when in doubt. Enter a
+rectangle in preview pixels that covers the entire label before entering a
+visible order code. Enter a blank code to leave the label check unassessed.
+The judge uses the actual selected timestamp from the first ten seconds, keeps
+the code in memory, and masks that rectangle before the visual approval stage.
+Use `redactions_by_timestamp` for any visible label or other PII in additional
+frames. All outbound images still need the regular human visual approval.
+
+An existing `inputs.opening` takes precedence over the callback. An adapter
+using a previously collected observation must also supply the needed masks.
+If the operator skips, or the sampler has no eligible early frame, the worker
+continues with the seal unassessed and requires human review.
