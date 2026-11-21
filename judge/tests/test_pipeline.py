@@ -5,6 +5,7 @@ from pathlib import Path
 from threading import Lock
 from types import SimpleNamespace
 
+import cv2
 import numpy as np
 import pytest
 
@@ -14,6 +15,7 @@ from judge import JudgeInputs, ReviewRequest, ReviewRequired, run
 from judge.intake import IntakeResult
 from judge.integrity import OpeningObservation
 from judge.matching import ReviewedListingPhoto
+from judge.opening_review import OpeningReviewRequest, OpeningReviewSelection
 from judge.pipeline import PipelineError
 from judge.privacy import RedactionRegion
 from judge.sampling import SampledFrame
@@ -182,6 +184,78 @@ def test_pending_review_never_releases_images_or_writes_verdict(
     assert not (folder / "verdict.json").exists()
     assert not (folder / "frames").exists()
     assert not (folder / "listing").exists()
+
+
+@pytest.mark.parametrize(
+    ("order_code", "label_status"), [(ORDER.id, "pass"), ("OTHER-19002", "flag")]
+)
+def test_local_opening_review_masks_the_label_before_visual_review(
+    case: tuple[Path, JudgeInputs, FakeResponses], order_code: str, label_status: str
+) -> None:
+    folder, inputs, responses = case
+    order = []
+    region = RedactionRegion(x=8, y=8, width=16, height=16)
+
+    def opening(request: OpeningReviewRequest) -> OpeningReviewSelection:
+        order.append("opening")
+        assert not responses.calls
+        assert sorted(path.name for path in folder.iterdir()) == ["video.mp4"]
+        pixels = cv2.imdecode(
+            np.frombuffer(request.frames[0].jpeg, dtype=np.uint8), cv2.IMREAD_COLOR
+        )
+        assert pixels[8:24, 8:24].max() > 128
+        return OpeningReviewSelection(
+            frame_number=1, seal_state="intact", order_code=order_code, label_region=region
+        )
+
+    def approve(request: ReviewRequest) -> bool:
+        order.append(request.stage)
+        if request.stage == "visual":
+            assert not responses.calls
+            ref, asset = request.images[0]
+            assert ref.startswith("frames/0-")
+            pixels = cv2.imdecode(np.frombuffer(asset, dtype=np.uint8), cv2.IMREAD_COLOR)
+            assert pixels[8:24, 8:24].max() <= 2
+        return True
+
+    verdict = run(
+        folder,
+        inputs.model_copy(update={"opening": None}),
+        opening_review=opening,
+        review=approve,
+        model="test-model",
+        client=SimpleNamespace(responses=responses),
+    )
+    assert order[:2] == ["opening", "visual"]
+    assert (
+        verdict.checks["seal"].status == "pass" and verdict.checks["label"].status == label_status
+    )
+    assert order_code not in (folder / "verdict.json").read_text()
+    assert all(order_code not in prompt for _, prompt in responses.calls)
+    if label_status == "flag":
+        assert [(flag.type, flag.t) for flag in verdict.flags] == [("label_mismatch", 0.1254)]
+        assert verdict.display == "unsure"
+    else:
+        assert verdict.display == "clear"
+
+
+def test_existing_trusted_opening_observation_skips_the_local_prompt(
+    case: tuple[Path, JudgeInputs, FakeResponses],
+) -> None:
+    folder, inputs, responses = case
+
+    def should_not_call(request: OpeningReviewRequest) -> None:
+        pytest.fail("The API already supplied a trusted opening observation")
+
+    verdict = run(
+        folder,
+        inputs,
+        opening_review=should_not_call,
+        review=lambda request: True,
+        model="test-model",
+        client=SimpleNamespace(responses=responses),
+    )
+    assert verdict.checks["seal"].status == "pass"
 
 
 def test_observation_checkpoint_allows_retry_without_repeating_the_model_call(
