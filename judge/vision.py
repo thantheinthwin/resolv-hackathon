@@ -6,7 +6,6 @@ process. Listing comparison and verdict production are separate future tasks.
 """
 
 import base64
-import os
 from collections.abc import Sequence
 from typing import Literal, Protocol
 
@@ -14,6 +13,7 @@ import cv2
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field
 
+from judge.config import get_secret
 from judge.privacy import SanitizedFrame
 
 MAX_OBSERVATION_FRAMES = 10
@@ -102,7 +102,7 @@ def _image_data_url(image: np.ndarray) -> str:
 
 
 def _client_from_environment() -> VisionClient:
-    key = os.environ.get("OPENAI_API_KEY")
+    key = get_secret("OPENAI_API_KEY")
     if not key:
         raise VisionError("OPENAI_API_KEY is required for live vision analysis.")
     try:
@@ -143,7 +143,7 @@ def observe_product(
     if not privacy_approved:
         raise VisionError("Explicit privacy approval required before OpenAI transmission.")
     _validate_frames(frames)
-    selected_model = model or os.environ.get("OPENAI_MODEL")
+    selected_model = model or get_secret("OPENAI_MODEL")
     if not selected_model:
         raise VisionError("OPENAI_MODEL must be configured before visual analysis.")
 
