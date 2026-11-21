@@ -1,4 +1,3 @@
-# fmt: off
 """Five independent evidence-to-listing checks for the RE:SOLV judge.
 
 This stage consumes validated, privacy-reviewed frames and listing photos.
@@ -256,9 +255,8 @@ def compare_listing(
             "findings": [
                 item.model_copy(update={"t": nearest})
                 for item in observation.findings
-                if abs(
-                    (nearest := min(timestamps, key=lambda t: abs(t - item.t))) - item.t
-                ) <= GROUNDING_TOLERANCE_SECONDS
+                if abs((nearest := min(timestamps, key=lambda t: abs(t - item.t))) - item.t)
+                <= GROUNDING_TOLERANCE_SECONDS
             ]
         }
     )
