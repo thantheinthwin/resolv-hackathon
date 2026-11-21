@@ -36,6 +36,9 @@ class IntegrityError(ValueError):
     """Input frames have not met the integrity checker contract."""
 
 
+# fmt: on
+
+
 class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -72,9 +75,6 @@ class IntegrityFlag(StrictModel):
     type: Literal["cut", "seal_opened", "label_mismatch"]
     t: float = Field(ge=0, allow_inf_nan=False)
     note: str
-
-
-# fmt: on
 
 
 class IntegrityReport(StrictModel):
