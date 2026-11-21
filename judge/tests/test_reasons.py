@@ -22,7 +22,9 @@ class FakeResponses:
         return SimpleNamespace(output_parsed=out)
 
 
-def result(*, status: CheckStatus = "flag", translated: bool = True) -> Verdict:
+def result(
+    *, status: CheckStatus = "flag", has_notes: bool = True, translated: bool = True
+) -> Verdict:
     return Verdict(
         case_id="UJ-PRIVATE-12345",
         verdict="needs_human",
@@ -37,13 +39,13 @@ def result(*, status: CheckStatus = "flag", translated: bool = True) -> Verdict:
                 findings=[
                     Finding(
                         t=8.1254,
-                        note_en="The case is scratched.",
-                        note_th="ตัวเคสมีรอยขีดข่วน" if translated else "",
+                        note_en="The case is scratched at 99 seconds." if has_notes else "",
+                        note_th="ตัวเคสมีรอยขีดข่วนที่เวลา 99 วินาที" if has_notes and translated else "",
                     ),
                     Finding(
                         t=9.75,
-                        note_en="The screen is cracked.",
-                        note_th="หน้าจอแตกร้าว" if translated else "",
+                        note_en="The screen is cracked." if has_notes else "",
+                        note_th="หน้าจอแตกร้าว" if has_notes and translated else "",
                     ),
                 ],
             ),
@@ -73,7 +75,8 @@ def test_reuses_one_exact_finding_in_both_languages_and_keeps_original_reason() 
     assert reason.en.startswith(verdict.reason.en)
     assert reason.th.startswith(verdict.reason.th)
     assert "8.1254" in reason.en and "8.1254" in reason.th
-    assert "The case is scratched." in reason.en and "ตัวเคสมีรอยขีดข่วน" in reason.th
+    assert "damage check flagged a discrepancy" in reason.en and "ตรวจความเสียหาย" in reason.th
+    assert "99" not in reason.en and "99" not in reason.th
     assert "9.75" not in reason.en and "9.75" not in reason.th
     assert Reason.model_validate_json(reason.model_dump_json()) == reason
     assert verdict.reason.en == "Confidence is below 90%."
@@ -88,13 +91,13 @@ def test_reuses_one_exact_finding_in_both_languages_and_keeps_original_reason() 
 
 
 @pytest.mark.parametrize(
-    ("approved", "status", "translated"),
+    ("approved", "status", "has_notes"),
     [(False, "flag", True), (True, "pass", True), (True, "flag", False)],
 )
-def test_no_call_without_review_or_a_bilingual_finding_for_the_leaning(
-    approved: bool, status: CheckStatus, translated: bool
+def test_no_call_without_review_or_a_finding_for_the_leaning(
+    approved: bool, status: CheckStatus, has_notes: bool
 ) -> None:
-    verdict = result(status=status, translated=translated)
+    verdict = result(status=status, has_notes=has_notes)
     responses = FakeResponses()
     reason = generate_reason(
         verdict,
@@ -105,6 +108,20 @@ def test_no_call_without_review_or_a_bilingual_finding_for_the_leaning(
     )
     assert reason == verdict.reason
     assert not responses.calls
+
+
+def test_renders_both_languages_when_source_finding_is_only_in_english() -> None:
+    verdict = result(translated=False)
+    responses = FakeResponses({"finding_id": 1})
+    reason = generate_reason(
+        verdict,
+        "damage",
+        privacy_approved=True,
+        client=SimpleNamespace(responses=responses),
+        model="test-model",
+    )
+    assert "9.75" in reason.en and "9.75" in reason.th
+    assert "damage check" in reason.en and "ตรวจความเสียหาย" in reason.th
 
 
 @pytest.mark.parametrize(
