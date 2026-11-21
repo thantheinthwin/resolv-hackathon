@@ -29,21 +29,22 @@ class EvidenceQuality(BaseModel):
     warm_light: bool = False
 
 
+def deciding_check_name(claim_type: ClaimType, checks: dict[str, Check]) -> str:
+    """Identify the deciding comparison for the verdict and its explanation."""
+    if claim_type != "wrong_item":
+        return CLAIM_CHECK[claim_type]
+    product = checks.get("listing")
+    return "variant" if product is not None and product.status == "pass" else "listing"
+
+
 def _deciding_check(claim_type: ClaimType, checks: dict[str, Check]) -> tuple[Check, float]:
     unknown = Check(status="unclear", confidence=0, findings=[])
-    if claim_type != "wrong_item":
-        check = checks.get(CLAIM_CHECK[claim_type], unknown)
-        return check, check.confidence
-
-    product = checks.get("listing", unknown)
-    if product.status != "pass":
-        return product, product.confidence
-
-    variant = checks.get("variant", unknown)
-    confidence = variant.confidence
-    if variant.status == "pass":
-        confidence = min(product.confidence, confidence)
-    return variant, confidence
+    name = deciding_check_name(claim_type, checks)
+    check = checks.get(name, unknown)
+    confidence = check.confidence
+    if name == "variant" and check.status == "pass":
+        confidence = min(checks["listing"].confidence, confidence)
+    return check, confidence
 
 
 def _reason(

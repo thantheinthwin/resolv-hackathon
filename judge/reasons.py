@@ -1,12 +1,13 @@
 """Enrich verdict reasons using an existing grounded finding and bilingual templates."""
 
-import json
+from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 
 from api.app.contracts import Reason, Verdict
 from judge.config import get_secret
-from judge.vision import MODEL_TIMEOUT_SECONDS, VisionClient, _client_from_environment
+from judge.text_model import parse_text
+from judge.vision import VisionClient
 
 MAX_REASON_FINDINGS = 12
 CHECK_LABELS = {
@@ -37,6 +38,7 @@ def generate_reason(
     privacy_approved: bool = False,
     model: str | None = None,
     client: VisionClient | None = None,
+    cache_dir: Path | None = None,
 ) -> Reason:
     """Use a reviewed deciding check to enrich the engine's bilingual fallback.
 
@@ -66,15 +68,7 @@ def generate_reason(
     if not findings:
         return fallback
 
-    try:
-        selected_model = model or get_secret("OPENAI_MODEL")
-        if not selected_model:
-            return fallback
-        transport = client if client is not None else _client_from_environment()
-    except (ValueError, OSError):
-        return fallback
-
-    payload = {
+    payload: dict[str, object] = {
         "check": deciding_check,
         "check_status": check.status,
         "untrusted_findings": [
@@ -82,33 +76,35 @@ def generate_reason(
             for index, finding in enumerate(findings)
         ],
     }
-    messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
-    ]
-    for _attempt in range(2):
-        try:
-            response = transport.responses.parse(
-                model=selected_model,
-                input=messages,
-                text_format=ReasonSelection,
-                timeout=MODEL_TIMEOUT_SECONDS,
-                store=False,
-            )
-            selected = ReasonSelection.model_validate(response.output_parsed).finding_id
-        except Exception:
-            continue
-        if selected is None:
-            break
-        if 0 <= selected < len(findings):
-            t = findings[selected].t
-            en_label, th_label = labels
-            if check.status == "flag":
-                en_outcome, th_outcome = "flagged a discrepancy", "พบความแตกต่าง"
-            else:
-                en_outcome, th_outcome = "found a match", "พบว่าตรงกับข้อมูลการสั่งซื้อ"
-            return Reason(
-                en=f"{fallback.en}\nThe {en_label} check {en_outcome} and cites the frame at {t} s.",
-                th=f"{fallback.th}\nผลการ{th_label}{th_outcome} โดยอ้างอิงเฟรมที่เวลา {t} วินาที",
-            )
-    return fallback
+
+    def usable(selection: ReasonSelection) -> bool:
+        return selection.finding_id is None or 0 <= selection.finding_id < len(findings)
+
+    try:
+        selected_model = model or get_secret("OPENAI_MODEL")
+        if not selected_model:
+            return fallback
+        selection = parse_text(
+            model=selected_model,
+            system=SYSTEM_PROMPT,
+            payload=payload,
+            schema=ReasonSelection,
+            client=client,
+            cache_dir=cache_dir,
+            usable=usable,
+        )
+    except (ValueError, OSError):
+        return fallback
+    if selection is None or selection.finding_id is None:
+        return fallback
+
+    t = findings[selection.finding_id].t
+    en_label, th_label = labels
+    if check.status == "flag":
+        en_outcome, th_outcome = "flagged a discrepancy", "พบความแตกต่าง"
+    else:
+        en_outcome, th_outcome = "found a match", "พบว่าตรงกับข้อมูลการสั่งซื้อ"
+    return Reason(
+        en=f"{fallback.en}\nThe {en_label} check {en_outcome} and cites the frame at {t} s.",
+        th=f"{fallback.th}\nผลการ{th_label}{th_outcome} โดยอ้างอิงเฟรมที่เวลา {t} วินาที",
+    )

@@ -94,11 +94,15 @@ def _select_frames(frames: Sequence[SanitizedFrame]) -> list[SanitizedFrame]:
     return [frames[int(index)] for index in indices]
 
 
-def _image_data_url(image: np.ndarray) -> str:
+def _encode_jpeg(image: np.ndarray) -> bytes:
     ok, encoded = cv2.imencode(".jpg", image, [cv2.IMWRITE_JPEG_QUALITY, 85])
     if not ok:
         raise VisionError("Could not encode sanitized image for analysis.")
-    return "data:image/jpeg;base64," + base64.b64encode(encoded.tobytes()).decode("ascii")
+    return encoded.tobytes()
+
+
+def _image_data_url(image: np.ndarray) -> str:
+    return "data:image/jpeg;base64," + base64.b64encode(_encode_jpeg(image)).decode("ascii")
 
 
 def _client_from_environment() -> VisionClient:
