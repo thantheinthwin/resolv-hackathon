@@ -64,6 +64,10 @@ export function Uploader({
       return;
     }
     const nextPhotos = [...photos, ...images];
+    if (file && file.size > maxVideoBytes) {
+      setError("Your video is too large. Choose a video that is 50 MB or smaller.");
+      return;
+    }
     if (nextPhotos.length > 3 || images.some((photo) => photo.size > 10_000_000)) {
       setError("Choose up to three photos, 10 MB or smaller each.");
       return;
@@ -110,6 +114,14 @@ export function Uploader({
       };
       xhr.onerror = () => finish("Upload interrupted. Try sending your video again.");
       xhr.onload = () => {
+        if (xhr.status === 413) {
+          finish(
+            photos.length
+              ? "Your upload is too large. Choose a smaller video or remove photos."
+              : "Your video is too large to upload. Choose a smaller video.",
+          );
+          return;
+        }
         let body;
         try {
           body = JSON.parse(xhr.responseText);
