@@ -9,3 +9,7 @@ Read the guide for each service your task touches, including the other side of a
 - [Judge](judge/AGENTS.md) — evidence analysis and verdict production.
 
 For cross-service changes, follow [service contracts](docs/CONTRACTS.md). Consult the [project plan](docs/PLAN.md) for behavior and the [design guide](docs/DESIGN.md) for screens.
+
+## Before pushing or opening a PR
+
+Have a fresh, read-only Codex agent review the outgoing diff against the target branch using the [four review gates](docs/WORKFLOW.md#5-four-gate-review). Fix any findings and have the agent review the updated diff. Push or open the PR only after all four gates and local `make check` pass. Include the reviewed commit SHA and both results in the PR description.
