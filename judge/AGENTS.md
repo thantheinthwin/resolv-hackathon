@@ -9,9 +9,9 @@ Follow the [root rules](../AGENTS.md). Ama owns the worker. Use [the judge plan]
   **unsure**. An unsure verdict still shows its leaning.
 - The buyer's complaint goes only to the claim-type step. The checks that
   describe the video never see it, so it cannot bias what they report.
-- Every video finding cites the timestamp of a frame the model was actually sent.
-  Drop any finding that cites another time. A flag left with no grounded
-  finding becomes unclear. A still-photo finding cites a reviewed JPEG actually
+- Every video finding cites the exact presentation timestamp of a frame sent
+  to the model. Resolve a citation within 0.05s to the sent timestamp and
+  drop other citations. A flag left with no grounded finding becomes unclear. A still-photo finding cites a reviewed JPEG actually
   sent to the model and has no timestamp.
 - Fraud signals (seal opened before filming, a cut, a label that doesn't match
   the order) always make the verdict unsure.
@@ -110,8 +110,10 @@ opening reviewer and step progress callback still apply to the video path.
 
 Read the atomic `submission.json` with `SubmissionResult.model_validate_json`.
 Its `verdict` uses the shared `Verdict` model and video evidence keeps exact
-timestamps. `photo_findings` instead reference case-relative reviewed JPEGs
-under `buyer-photos/` and contain English and Thai notes. Photo findings are
+timestamps. `buyer_photos` lists all case-relative reviewed JPEGs under
+`buyer-photos/`, even when the model returns no findings. Each
+`photo_findings` entry references one of those JPEGs and contains English and
+Thai notes. Photo findings are
 supplemental shop evidence. Only the existing video path can produce a clear
 recommendation. With absent video or zero usable frames the verdict is
 `needs_human`; the separate `complaint` field holds the approved text

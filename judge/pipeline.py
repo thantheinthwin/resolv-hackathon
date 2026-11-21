@@ -39,7 +39,7 @@ from judge.matching import (
 from judge.opening_review import OpeningReviewer, collect_opening_review
 from judge.privacy import RedactionRegion, SanitizedFrame, mask_frame_regions, sanitize_frames
 from judge.reasons import generate_reason
-from judge.sampling import sample_frames
+from judge.sampling import NoSharpFrames, sample_frames
 from judge.verdict import EvidenceQuality, decide_verdict, deciding_check_name
 from judge.vision import (
     SYSTEM_INSTRUCTIONS,
@@ -188,6 +188,7 @@ def run_uploaded_case(
     progress: Progress | None,
     model: str | None,
     client: VisionClient | None,
+    steps: list[Step] | None = None,
 ) -> Verdict:
     """Assemble a verdict and stage its evidence before publishing the JSON."""
     video = directory / "video.mp4"
@@ -197,7 +198,7 @@ def run_uploaded_case(
     if inputs.order.listing_id != inputs.listing.id:
         raise PipelineError("The order does not reference the supplied listing.")
     _validate_photos(inputs.listing_photos)
-    steps: list[Step] = []
+    steps = [] if steps is None else steps
 
     @contextmanager
     def step(name: str, kind: Literal["code", "model"], output: str) -> Iterator[None]:
@@ -211,8 +212,14 @@ def run_uploaded_case(
 
     with step("intake", "code", "Validated the local video"):
         intake = inspect_video(video)
-    with step("sampling", "code", "Selected video frames"):
-        sampled = sample_frames(video)
+    sampling_error = None
+    with step("sampling", "code", "Checked the video for usable frames"):
+        try:
+            sampled = sample_frames(video)
+        except NoSharpFrames as exc:
+            sampling_error = exc
+    if sampling_error is not None:
+        raise sampling_error
     opening = inputs.opening
     label_region = None
     if opening is None and opening_review is not None:

@@ -1,6 +1,8 @@
 """Exercise the submission entry point across all buyer evidence combinations."""
 
 from base64 import b64decode
+import json
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -8,13 +10,12 @@ import cv2
 import numpy as np
 import pytest
 
-from api.app.contracts import Verdict
+from api.app.contracts import ProgressEvent, Verdict
 from api.app.sample import LISTING, ORDER
 from judge import ReviewRequest, ReviewRequired
 from judge.matching import ReviewedListingPhoto
 from judge.pipeline import PipelineError
 from judge.privacy import RedactionRegion
-from judge.sampling import NoSharpFrames
 from judge.submission import BuyerPhoto, SubmissionInputs, SubmissionResult, run_submission
 
 DESCRIPTION = "พบรอยแตกบนเครื่อง private-complaint"
@@ -119,6 +120,7 @@ def test_accepts_each_evidence_combination(
 
     assert result.video_status == ("analyzed" if video else "absent")
     assert bool(result.photo_findings) is photo
+    assert len(result.buyer_photos) == int(photo)
     assert video_descriptions == ([DESCRIPTION if written else "   "] if video else [])
     assert [kind for kind, _ in responses.calls] == (
         ["PhotoMatch"] * photo + ["ComplaintSelection"] * (written and not video)
@@ -146,20 +148,21 @@ def test_empty_submission_is_invalid(tmp_path: Path) -> None:
     assert not (tmp_path / "submission.json").exists()
 
 
-def test_no_sharp_frames_keeps_photos_and_text(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    (tmp_path / "video.mp4").write_bytes(b"video placeholder")
-
-    def no_frames(*args: object, **kwargs: object) -> Verdict:
-        raise NoSharpFrames("smudged video")
-
-    monkeypatch.setattr("judge.submission.run_uploaded_case", no_frames)
+def test_no_sharp_frames_keeps_photos_and_text(tmp_path: Path) -> None:
+    writer = cv2.VideoWriter(
+        str(tmp_path / "video.mp4"), cv2.VideoWriter_fourcc(*"mp4v"), 2, (64, 64)
+    )
+    assert writer.isOpened()
+    for _ in range(12):
+        writer.write(np.zeros((64, 64, 3), dtype=np.uint8))
+    writer.release()
+    events: list[ProgressEvent] = []
     result = run_submission(
         tmp_path,
         _inputs(written=True, media=True),
         buyer_photos=_photos(),
         review=_allow,
+        progress=events.append,
         model="test-model",
         client=SimpleNamespace(responses=Responses()),
     )
@@ -168,6 +171,8 @@ def test_no_sharp_frames_keeps_photos_and_text(
     assert result.complaint is not None and result.complaint.allegations
     assert len(result.photo_findings) == 1
     assert "usable frames" in result.verdict.reason.en
+    assert (events[-1].step, events[-1].event) == ("sampling", "finished")
+    assert [step.name for step in result.verdict.steps] == ["intake", "sampling"]
 
 
 def test_photo_model_uses_exact_reviewed_redacted_jpegs_and_never_the_complaint(
@@ -238,4 +243,138 @@ def test_malformed_photo_response_retries_then_returns_no_findings(tmp_path: Pat
     assert len(responses.calls) == 2
     assert result.photo_findings == []
     assert result.verdict.verdict == "needs_human"
-    assert not (tmp_path / "buyer-photos").exists()
+    assert len(result.buyer_photos) == 1
+    assert (tmp_path / result.buyer_photos[0]).is_file()
+
+
+def test_text_approval_matches_the_transmitted_payload(tmp_path: Path) -> None:
+    requests: list[ReviewRequest] = []
+    responses = Responses()
+
+    def approve(request: ReviewRequest) -> bool:
+        requests.append(request)
+        return True
+
+    run_submission(
+        tmp_path,
+        _inputs(written=True),
+        review=approve,
+        model="test-model",
+        client=SimpleNamespace(responses=responses),
+    )
+    assert len(requests) == 1 and requests[0].stage == "complaint"
+    name, messages = responses.calls[0]
+    assert name == "ComplaintSelection"
+    assert requests[0].text == messages[1]["content"]
+
+
+def test_mixed_submission_cites_the_presentation_time_of_a_variable_rate_frame(
+    tmp_path: Path,
+) -> None:
+    manifest: list[str] = []
+    for index, duration in enumerate((1.8, 1.5, 2.6, 2.2, 1.0)):
+        image = np.random.default_rng(index).integers(0, 255, (96, 96, 3), dtype=np.uint8)
+        name = f"image-{index}.png"
+        assert cv2.imwrite(str(tmp_path / name), image)
+        manifest.extend([f"file {name}", f"duration {duration}"])
+    manifest.append(f"file {name}")
+    source = tmp_path / "input.txt"
+    source.write_text("\n".join(manifest) + "\n")
+    clip = tmp_path / "video.mp4"
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-v",
+            "error",
+            "-f",
+            "concat",
+            "-safe",
+            "1",
+            "-i",
+            str(source),
+            "-fps_mode",
+            "vfr",
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            str(clip),
+        ],
+        check=True,
+        timeout=15,
+    )
+    probe = subprocess.run(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "frame=best_effort_timestamp_time",
+            "-of",
+            "json",
+            str(clip),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    t = float(json.loads(probe.stdout)["frames"][2]["best_effort_timestamp_time"])
+    assert t == 3.32
+
+    class VideoResponses(Responses):
+        def parse(self, **kwargs: object) -> SimpleNamespace:
+            schema = kwargs["text_format"].__name__
+            if schema == "VisionObservation":
+                return SimpleNamespace(
+                    output_parsed={
+                        "status": "observed",
+                        "findings": [
+                            {"t": t, "category": "damage", "value": "crack", "confidence": 0.96}
+                        ],
+                        "note_en": "Compared the evidence.",
+                    }
+                )
+            if schema == "MatchResponse":
+                text = kwargs["input"][1]["content"][0]["text"]
+                relevant = json.loads(text.splitlines()[0])["check"] == "damage"
+                return SimpleNamespace(
+                    output_parsed={
+                        "status": "flag" if relevant else "unclear",
+                        "confidence": 0.96 if relevant else 0,
+                        "findings": [
+                            {"t": t, "note_en": "A crack is visible.", "note_th": "เห็นรอยแตก"}
+                        ]
+                        if relevant
+                        else [],
+                        "note_en": "Compared the evidence.",
+                    }
+                )
+            return super().parse(**kwargs)
+
+    requests: list[ReviewRequest] = []
+
+    def approve(request: ReviewRequest) -> bool:
+        requests.append(request)
+        return request.stage != "reason"
+
+    result = run_submission(
+        tmp_path,
+        _inputs(written=True, media=True),
+        buyer_photos=_photos(),
+        review=approve,
+        model="test-model",
+        client=SimpleNamespace(responses=VideoResponses()),
+    )
+    assert result.video_status == "analyzed"
+    frame_review = next(r for r in requests if "frame_times" in r.text)
+    assert t in json.loads(frame_review.text)["frame_times"]
+    [video_evidence] = result.verdict.evidence
+    assert video_evidence.t == t
+    assert (tmp_path / video_evidence.frame).read_bytes() == dict(frame_review.images)[
+        video_evidence.frame
+    ]
+    [photo_evidence] = result.photo_findings
+    assert (tmp_path / photo_evidence.photo).is_file()

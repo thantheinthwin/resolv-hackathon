@@ -118,6 +118,26 @@ def _resolve(
     )
 
 
+def _complaint_payload(
+    claim_type: ClaimType,
+    description: str,
+    catalogue: list[tuple[ComparisonName, Finding]],
+) -> dict[str, object]:
+    return {
+        "selected_claim_type": claim_type,
+        "untrusted_complaint": description,
+        "untrusted_findings": [
+            {
+                "id": index,
+                "check": name,
+                "note_en": item.note_en[:250],
+                "note_th": item.note_th[:250],
+            }
+            for index, (name, item) in enumerate(catalogue)
+        ],
+    }
+
+
 def assess_complaint(
     claim_type: ClaimType,
     description: str,
@@ -151,19 +171,7 @@ def assess_complaint(
         if (check := comparisons.get(name)) is not None and check.status != "unclear"
         for finding in check.findings[:MAX_FINDINGS_PER_CHECK]
     ]
-    payload: dict[str, object] = {
-        "selected_claim_type": claim_type,
-        "untrusted_complaint": description,
-        "untrusted_findings": [
-            {
-                "id": index,
-                "check": name,
-                "note_en": item.note_en[:250],
-                "note_th": item.note_th[:250],
-            }
-            for index, (name, item) in enumerate(catalogue)
-        ],
-    }
+    payload = _complaint_payload(claim_type, description, catalogue)
     selected_model = model or get_secret("OPENAI_MODEL")
     if not selected_model:
         return fallback

@@ -79,7 +79,7 @@ def sample_frames(
     video = Path(video_path)
     if not video.is_file():
         raise SamplingError("Video file not found.")
-    capture = cv2.VideoCapture(str(video))
+    capture = cv2.VideoCapture(str(video), cv2.CAP_FFMPEG)
     try:
         if not capture.isOpened():
             raise SamplingError("Video cannot be decoded.")
@@ -92,18 +92,21 @@ def sample_frames(
         previous_small: np.ndarray | None = None
         next_sample_time = 0.0
         last_keep_time = -math.inf
-        index = 0
         decoded = False
         while True:
             success, frame = capture.read()
             if not success:
                 break
             decoded = True
-            timestamp = index / fps
-            index += 1
+            # The decoder reports the time of the frame it just returned.
+            # Average FPS cannot recover the timeline of variable-rate video.
+            timestamp = capture.get(cv2.CAP_PROP_POS_MSEC) / 1000
+            if not math.isfinite(timestamp) or timestamp < 0:
+                raise SamplingError("Video contains an invalid frame presentation time.")
             if timestamp + 1e-8 < next_sample_time:
                 continue
-            next_sample_time += SAMPLE_INTERVAL_SECONDS
+            interval = math.floor((timestamp + 1e-8) / SAMPLE_INTERVAL_SECONDS)
+            next_sample_time = (interval + 1) * SAMPLE_INTERVAL_SECONDS
 
             gray = _gray_for_scoring(frame)
             sharpness = float(cv2.Laplacian(gray, cv2.CV_64F).var())

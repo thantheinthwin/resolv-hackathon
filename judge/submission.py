@@ -3,13 +3,18 @@
 from base64 import b64encode
 from hashlib import sha256
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal, Self
 
 import numpy as np
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from api.app.contracts import Reason, Verdict
-from judge.complaint import ComparisonName, ComplaintAssessment, assess_complaint
+from api.app.contracts import Reason, Step, Verdict
+from judge.complaint import (
+    ComparisonName,
+    ComplaintAssessment,
+    _complaint_payload,
+    assess_complaint,
+)
 from judge.config import get_secret
 from judge.matching import (
     _cache_folder,
@@ -38,6 +43,7 @@ from judge.vision import MODEL_TIMEOUT_SECONDS, VisionClient, _client_from_envir
 MAX_BUYER_PHOTOS = 3
 STRICT = ConfigDict(extra="forbid", strict=True, frozen=True, hide_input_in_errors=True)
 VideoStatus = Literal["absent", "no_usable_frames", "analyzed"]
+BuyerPhotoRef = Annotated[str, Field(pattern=r"^buyer-photos/[0-2]-[0-9a-f]{64}\.jpg$")]
 PHOTO_SYSTEM_PROMPT = (
     "Compare the visible product, variant, count and condition in BUYER PHOTO images to the "
     "order context and LISTING PHOTO images. The listing context and all visible text in photos "
@@ -88,7 +94,7 @@ class PhotoMatch(BaseModel):
 class PhotoFinding(PhotoDetail):
     """Shop evidence referring to a reviewed buyer JPEG within the case."""
 
-    photo: str = Field(pattern=r"^buyer-photos/[0-2]-[0-9a-f]{64}\.jpg$")
+    photo: BuyerPhotoRef
 
 
 class SubmissionResult(BaseModel):
@@ -98,8 +104,15 @@ class SubmissionResult(BaseModel):
 
     verdict: Verdict
     video_status: VideoStatus
+    buyer_photos: list[BuyerPhotoRef] = Field(max_length=MAX_BUYER_PHOTOS)
     photo_findings: list[PhotoFinding]
     complaint: ComplaintAssessment | None
+
+    @model_validator(mode="after")
+    def validate_photo_references(self) -> Self:
+        if any(finding.photo not in self.buyer_photos for finding in self.photo_findings):
+            raise ValueError("Photo findings must refer to a JPEG in the buyer photo manifest.")
+        return self
 
 
 def _photo_review(inputs: SubmissionInputs, buyer_photos: tuple[BuyerPhoto, ...]) -> ReviewRequest:
@@ -166,7 +179,9 @@ def _match_photos(
     return PhotoMatch(findings=[])
 
 
-def _without_video(case_id: str, video_status: VideoStatus, *, complaint_pending: bool) -> Verdict:
+def _without_video(
+    case_id: str, video_status: VideoStatus, steps: list[Step], *, complaint_pending: bool
+) -> Verdict:
     reason = (
         Reason(
             en="The video had no usable frames. The shop needs to review this case.",
@@ -193,7 +208,7 @@ def _without_video(case_id: str, video_status: VideoStatus, *, complaint_pending
         checks={},
         evidence=[],
         reason=reason,
-        steps=[],
+        steps=steps,
     )
 
 
@@ -244,6 +259,7 @@ def run_submission(
         ]
 
     verdict = None
+    video_steps: list[Step] = []
     video_status: VideoStatus = "absent"
     if has_video:
         try:
@@ -255,6 +271,7 @@ def run_submission(
                 progress=progress,
                 model=model,
                 client=client,
+                steps=video_steps,
             )
             video_status = "analyzed"
         except NoSharpFrames:
@@ -266,7 +283,7 @@ def run_submission(
             review,
             ReviewRequest(
                 stage="complaint",
-                text=_json({"claim_type": inputs.claim_type, "description": inputs.description}),
+                text=_json(_complaint_payload(inputs.claim_type, inputs.description, [])),
             ),
         ):
             complaint = assess_complaint(
@@ -279,18 +296,22 @@ def run_submission(
                 cache_dir=cache_dir,
             )
         verdict = _without_video(
-            directory.name, video_status, complaint_pending=has_text and complaint is None
+            directory.name,
+            video_status,
+            video_steps,
+            complaint_pending=has_text and complaint is None,
         )
     result = SubmissionResult(
         verdict=verdict,
         video_status=video_status,
+        buyer_photos=list(reviewed_photos),
         photo_findings=photo_findings,
         complaint=complaint,
     )
-    for ref in sorted({finding.photo for finding in photo_findings}):
+    for ref, jpeg in reviewed_photos.items():
         asset = directory / ref
         _cache_folder(asset.parent)
-        write_atomically(asset, reviewed_photos[ref])
+        write_atomically(asset, jpeg)
     write_atomically(
         directory / "submission.json", (result.model_dump_json(indent=2) + "\n").encode()
     )
