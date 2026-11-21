@@ -28,8 +28,11 @@ def test_invalid_duration_is_rejected(
     monkeypatch.setattr(
         "judge.intake._probe",
         lambda _: {
-            "duration": duration, "width": 8, "height": 8,
-            "rotation": 0, "creation_time": None,
+            "duration": duration,
+            "width": 8,
+            "height": 8,
+            "rotation": 0,
+            "creation_time": None,
         },
     )
     with pytest.raises(IntakeError, match="duration"):
@@ -45,8 +48,11 @@ def test_inclusive_duration_boundaries(
     monkeypatch.setattr(
         "judge.intake._probe",
         lambda _: {
-            "duration": duration, "width": 8, "height": 8,
-            "rotation": 90, "creation_time": None,
+            "duration": duration,
+            "width": 8,
+            "height": 8,
+            "rotation": 90,
+            "creation_time": None,
         },
     )
     monkeypatch.setattr("judge.intake._dark_frame_ratio", lambda _: 0.4)
@@ -64,8 +70,11 @@ def test_excess_darkness_warns_without_rejecting(
     monkeypatch.setattr(
         "judge.intake._probe",
         lambda _: {
-            "duration": 10, "width": 8, "height": 8,
-            "rotation": 0, "creation_time": None,
+            "duration": 10,
+            "width": 8,
+            "height": 8,
+            "rotation": 0,
+            "creation_time": None,
         },
     )
     monkeypatch.setattr("judge.intake._dark_frame_ratio", lambda _: 0.41)
@@ -74,9 +83,7 @@ def test_excess_darkness_warns_without_rejecting(
     assert result.warnings and "dark" in result.warnings[0].lower()
 
 
-def test_oversize_rejected_before_probe(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_oversize_rejected_before_probe(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     video = tmp_path / "huge.mp4"
     with video.open("wb") as stream:
         stream.truncate(50_000_001)
@@ -85,9 +92,7 @@ def test_oversize_rejected_before_probe(
         inspect_video(video)
 
 
-def test_unreadable_media_rejected(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_unreadable_media_rejected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     video = tmp_path / "bad.mp4"
     video.write_bytes(b"not a video")
     monkeypatch.setattr(

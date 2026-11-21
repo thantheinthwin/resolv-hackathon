@@ -39,11 +39,18 @@ def _probe(path: Path) -> dict[str, Any]:
     try:
         process = subprocess.run(
             [
-                "ffprobe", "-v", "error", "-select_streams", "v:0",
-                "-show_entries", "format=duration:format_tags=creation_time:"
+                "ffprobe",
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "format=duration:format_tags=creation_time:"
                 "stream=width,height,duration:stream_tags=rotate,creation_time:"
                 "stream_side_data=rotation",
-                "-of", "json", str(path),
+                "-of",
+                "json",
+                str(path),
             ],
             capture_output=True,
             text=True,
@@ -138,6 +145,7 @@ def inspect_video(path: str | Path) -> IntakeResult:
         dark_frame_ratio=dark_ratio,
         warnings=(
             ["More than 40% of video frames are dark; please consider re-recording."]
-            if dark_ratio > DARK_FRAME_THRESHOLD else []
+            if dark_ratio > DARK_FRAME_THRESHOLD
+            else []
         ),
     )

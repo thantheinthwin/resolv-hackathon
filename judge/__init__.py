@@ -1,26 +1,25 @@
-"""Evidence analysis entry point for buyer complaints.
+"""Evidence analysis entry point for buyer complaints."""
 
-This is a deliberately conservative scaffold, not a video analyzer.
-"""
-
-import json
 from pathlib import Path
-from typing import Any
+from tempfile import NamedTemporaryFile
+
+from api.app.contracts import Verdict
 
 
-def run(case_dir: str | Path) -> dict[str, Any]:
-    """Return and persist an explicitly unassessed sample verdict.
-
-    The real judge will replace this implementation after the API's shared
-    Pydantic Verdict contract is available.
-    """
-    directory = Path(case_dir)
+def run(case_dir: str | Path) -> Verdict:
+    """Return the unassessed fixture and persist the same verdict for the API."""
+    directory = Path(case_dir).resolve()
     directory.mkdir(parents=True, exist_ok=True)
     fixture = Path(__file__).parent / "fixtures" / "verdict.sample.json"
-    verdict: dict[str, Any] = json.loads(fixture.read_text(encoding="utf-8"))
-    verdict["case_id"] = directory.name
-    (directory / "verdict.json").write_text(
-        json.dumps(verdict, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
+    sample = Verdict.model_validate_json(fixture.read_bytes())
+    verdict = Verdict.model_validate({**sample.model_dump(), "case_id": directory.name})
+    # Readers should see either the previous complete verdict or the new one.
+    output = NamedTemporaryFile(dir=directory, delete=False)
+    temporary_path = Path(output.name)
+    try:
+        with output:
+            output.write((verdict.model_dump_json(indent=2) + "\n").encode("utf-8"))
+        temporary_path.replace(directory / "verdict.json")
+    finally:
+        temporary_path.unlink(missing_ok=True)
     return verdict

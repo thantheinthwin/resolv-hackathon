@@ -34,9 +34,7 @@ class FakeCapture:
 
 
 def sharp_frame(seed: int, width: int = 96, height: int = 96) -> np.ndarray:
-    return np.random.default_rng(seed).integers(
-        0, 256, size=(height, width, 3), dtype=np.uint8
-    )
+    return np.random.default_rng(seed).integers(0, 256, size=(height, width, 3), dtype=np.uint8)
 
 
 def setup_video(
@@ -85,9 +83,7 @@ def test_scene_change_retained_before_one_second(
     assert frames[1].scene_change
 
 
-def test_frame_width_and_image_type(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_frame_width_and_image_type(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     path, _ = setup_video(tmp_path, monkeypatch, [sharp_frame(1, width=1000, height=200)])
     frames = sample_frames(path)
     assert len(frames) == 1
@@ -95,9 +91,7 @@ def test_frame_width_and_image_type(
     assert isinstance(frames[0].image, np.ndarray)
 
 
-def test_cap_preserves_start_and_end(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_cap_preserves_start_and_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     path, _ = setup_video(tmp_path, monkeypatch, [sharp_frame(i) for i in range(100)])
     frames = sample_frames(path, max_frames=30)
     assert len(frames) <= 30
@@ -105,9 +99,7 @@ def test_cap_preserves_start_and_end(
     assert frames[-1].timestamp_seconds >= 49.0
 
 
-def test_does_not_write_unsanitized_images(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_does_not_write_unsanitized_images(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     path, _ = setup_video(tmp_path, monkeypatch, [sharp_frame(5)])
     sample_frames(path)
     assert sorted(p.name for p in tmp_path.iterdir()) == ["sample.mp4"]
@@ -122,9 +114,7 @@ def test_invalid_fps_rejected_and_capture_released(
     assert capture.released
 
 
-def test_no_frames_rejected(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_no_frames_rejected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     path, capture = setup_video(tmp_path, monkeypatch, [])
     with pytest.raises(SamplingError, match="decodable"):
         sample_frames(path)

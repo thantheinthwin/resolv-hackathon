@@ -42,6 +42,14 @@ and the shop's note.
 5. Demo passcode, daily case cap, model answer cache.
 6. Laptop backup copy, demo videos pre-judged.
 
+Setup baseline progress on `thant/setup-baseline`:
+
+- [x] Verify the shared contracts, fixture-backed judge, SQLite sample case and API read paths.
+- [x] Generate web types from the API and open the seeded order through the role picker.
+- [x] Run the local quality checks and production browser smoke test.
+- [ ] Confirm hosted CI, teammate reviews, branch protection and the setup merge.
+- [ ] Connect a new upload to a background job and display its result in the shop screen.
+
 **Game: `web/`, slides and pitch**
 1. Next.js app with types generated from the API.
 2. Buyer screens on sample data: role picker, Your orders, Complaint, Video,

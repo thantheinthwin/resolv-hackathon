@@ -57,9 +57,7 @@ def _resize_for_output(frame: np.ndarray) -> np.ndarray:
     if width <= OUTPUT_WIDTH:
         return frame.copy()
     target_height = max(1, round(height * OUTPUT_WIDTH / width))
-    return cv2.resize(
-        frame, (OUTPUT_WIDTH, target_height), interpolation=cv2.INTER_AREA
-    )
+    return cv2.resize(frame, (OUTPUT_WIDTH, target_height), interpolation=cv2.INTER_AREA)
 
 
 def sample_frames(
@@ -108,8 +106,7 @@ def sample_frames(
             small = cv2.resize(gray, (64, 64), interpolation=cv2.INTER_AREA)
             scene_change = (
                 previous_small is not None
-                and float(cv2.absdiff(small, previous_small).mean()) / 255.0
-                > SCENE_CHANGE_SCORE
+                and float(cv2.absdiff(small, previous_small).mean()) / 255.0 > SCENE_CHANGE_SCORE
             )
             previous_small = small
             if sharpness < MIN_BLUR_VARIANCE:
@@ -118,8 +115,7 @@ def sample_frames(
             fingerprint = _phash(gray)
             if (
                 last_hash is not None
-                and int(np.count_nonzero(fingerprint != last_hash))
-                <= DUPLICATE_HASH_DISTANCE
+                and int(np.count_nonzero(fingerprint != last_hash)) <= DUPLICATE_HASH_DISTANCE
             ):
                 continue
             if timestamp - last_keep_time < 1.0 and not scene_change:
