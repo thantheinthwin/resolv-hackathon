@@ -42,7 +42,7 @@ jobs:
       - name: Run hosted reviewer
         if: env.REVIEW_READY == 'true'
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPEN_AI_CODE_QUALITY_REVIEWER_KEY }}
           OPENAI_MODEL: ${{ vars.OPENAI_MODEL || 'gpt-6-astra' }}
         run: node .github/quality/review.mjs review
       - name: Publish advisory review
