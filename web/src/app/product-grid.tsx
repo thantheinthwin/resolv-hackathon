@@ -15,19 +15,21 @@ export function ProductGrid({ products }: { products: Listing[] }) {
   );
   return (
     <section className={styles.catalog} aria-label="Browse products">
-      <label className={styles.search}>
-        <Search size={19} aria-hidden />
-        <input
-          type="search"
-          aria-label="Search products"
-          placeholder="Search by product, colour or size"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
-      </label>
-      <p className={styles.count} role="status">
-        {visible.length} {visible.length === 1 ? "product" : "products"}
-      </p>
+      <div className={styles.toolbar}>
+        <label className={styles.search}>
+          <Search size={19} aria-hidden />
+          <input
+            type="search"
+            aria-label="Search products"
+            placeholder="Search by product, colour or size"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        </label>
+        <p className={styles.count} role="status">
+          {visible.length} {visible.length === 1 ? "product" : "products"}
+        </p>
+      </div>
       {visible.length === 0 && (
         <p>
           {products.length
@@ -51,7 +53,16 @@ export function ProductGrid({ products }: { products: Listing[] }) {
                 <h3>{item.title}</h3>
                 <strong>฿{formatPrice(item.price)}</strong>
               </div>
-              <p className={styles.options}>{[...item.colors, ...item.sizes].join(" · ")}</p>
+              <p className={styles.options}>
+                {[
+                  item.colors.length > 2
+                    ? item.colors.length + " colours"
+                    : item.colors.join(" · "),
+                  item.sizes.length > 1 ? item.sizes.length + " sizes" : item.sizes[0],
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </p>
             </a>
           </li>
         ))}

@@ -415,7 +415,7 @@ export function BuyerDesk({
           Report a problem<span className="heading-period">.</span>
         </h1>
         <Steps current={view} />
-        <div className="panel claim-frame">
+        <div className="panel claim-frame" data-step={view}>
           <header className="claim-frame-heading">
             <h2
               className="claim-step-title"
