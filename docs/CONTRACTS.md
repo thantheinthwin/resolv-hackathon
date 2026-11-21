@@ -37,3 +37,24 @@ Use [the planned models and routes](PLAN.md#6-data-and-contracts) for design and
 | API → web | Exercise the changed route with its documented request, response, and error status. Check the buyer response excludes shop-only fields. | Regenerate types from that API and type-check the consuming screen. For upload or live progress changes, exercise multipart rejection or the SSE event sequence through completion. |
 
 For each changed boundary, identify the producer and consumers in the PR. Record the fixture, command, and result on each side. If a companion change is outside your task, name the affected service and coordinate it before merging.
+
+## SQLite schema and upgrades
+
+The [numbered SQL migrations](../api/migrations/) define the schema in `data/cases.sqlite3`.
+API startup applies pending files in numeric order in one transaction and records the last
+applied number in SQLite's `PRAGMA user_version`. Existing unversioned demo databases start
+at version zero. Add a new numbered file for subsequent changes.
+
+- `0001_case_storage.sql` adopts the case, photo, upload-link, recovery and seed tables.
+- `0002_products_orders.sql` migrates existing listings into products and creates a delivered
+  demo order for each. New listings follow the same flow. Cases reference orders, which
+  reference products. Case details and verdicts retain their validated JSON representation.
+- `0003_daily_usage.sql` stores Bangkok-day case totals and per-IP counters. On upgrade,
+  surviving non-seed cases created that day count toward the global limit. Older databases
+  contain no client IP history. A proxy that presents one peer address shares one IP quota.
+
+This aligns the four domain tables (`cases`, `products`, `orders`, `usage`) with the
+[prototype schema](https://github.com/thantheinthwin/unboxing-judge/blob/main/db/schema.ts).
+The competition API uses one passcode-protected shop, local media storage and SQLite job
+claims. The SQL files upgrade competition databases; importing a prototype D1 dump would
+require a separate data conversion.

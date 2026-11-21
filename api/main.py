@@ -26,14 +26,16 @@ from fastapi import (
 from pydantic import BaseModel
 from fastapi.responses import FileResponse, StreamingResponse
 
+from api.app.catalog import delivered_orders, require_order
 from api.app.contracts import Case, Decision, Listing, ProgressEvent
 from api.app.fake import Judge, write_sample_verdict
 from api.app.jobs import JobRunner
 from api.app.judging import CaseJudge
 from api.app.listings import accept_listing, catalog, photo_response
 from api.app.uploads import accept_video, media_type
-from api.app.sample import LISTING, ORDER, OrderWithListing
+from api.app.sample import ORDER, OrderWithListing
 from api.app.store import Store, case_for_upload_link, get_case, list_cases, save_case
+from api.app.usage import consume_case_quota
 from api.app.views import (
     BuyerCase,
     CreatedCase,
@@ -114,7 +116,8 @@ def create_app(data_dir: Path | None = None, judge: Judge | None = None) -> Fast
 
     @router.get("/orders")
     def orders() -> list[OrderWithListing]:
-        return [ORDER]
+        with store.connection() as db:
+            return delivered_orders(db)
 
     @router.get("/listings")
     def listings() -> list[Listing]:
@@ -150,17 +153,21 @@ def create_app(data_dir: Path | None = None, judge: Judge | None = None) -> Fast
         async with app.state.intake_slots:
             return await accept_listing(store, request)
 
-    @router.post("/cases", status_code=201)
-    def create_case(body: CreateCase) -> CreatedCase:
-        if body.order_id != ORDER.id:
-            raise HTTPException(404, "Order not found.")
-        case = Case(
-            id=f"UJ-{uuid4().hex}",
-            **body.model_dump(),
-            created_at=datetime.now(UTC),
-            status="awaiting_video",
-        )
+    @router.post(
+        "/cases",
+        status_code=201,
+        responses={429: {"model": ErrorDetail, "description": "Daily case limit reached"}},
+    )
+    def create_case(body: CreateCase, request: Request) -> CreatedCase:
         with store.transaction() as db:
+            require_order(db, body.order_id)
+            case = Case(
+                id=f"UJ-{uuid4().hex}",
+                **body.model_dump(),
+                created_at=datetime.now(UTC),
+                status="awaiting_video",
+            )
+            consume_case_quota(db, request.client.host if request.client else None, case.created_at)
             save_case(db, case)
         return CreatedCase(id=case.id)
 
@@ -177,22 +184,30 @@ def create_app(data_dir: Path | None = None, judge: Judge | None = None) -> Fast
     @router.get("/shop/cases")
     def inbox() -> list[ShopSummary]:
         with store.connection() as db:
-            cases = list_cases(db)
-        summaries = [
-            ShopSummary(
-                id=c.id,
-                product=LISTING.title,
-                order_id=c.order_id,
-                claim_type=c.claim_type,
-                status=c.status,
-                verdict=c.verdict.verdict if c.verdict else None,
-                display=c.verdict.display if c.verdict else None,
-                confidence=c.verdict.confidence if c.verdict else None,
-                created_at=c.created_at,
+            rows = db.execute(
+                "SELECT c.body, p.title FROM cases AS c "
+                "LEFT JOIN orders AS o ON o.id=c.order_id "
+                "LEFT JOIN products AS p ON p.id=o.product_id"
             )
-            for c in cases
-        ]
-        return sorted(summaries, key=lambda s: s.display != "unsure")
+            summaries = []
+            for body, title in rows:
+                case = Case.model_validate_json(body)
+                summaries.append(
+                    ShopSummary(
+                        id=case.id,
+                        product=title or "Unknown product",
+                        order_id=case.order_id,
+                        claim_type=case.claim_type,
+                        status=case.status,
+                        verdict=case.verdict.verdict if case.verdict else None,
+                        display=case.verdict.display if case.verdict else None,
+                        confidence=case.verdict.confidence if case.verdict else None,
+                        created_at=case.created_at,
+                    )
+                )
+        return sorted(
+            summaries, key=lambda row: (row.display == "unsure", row.created_at), reverse=True
+        )
 
     @router.get("/shop/cases/{id}")
     def shop_case(id: str) -> Case:

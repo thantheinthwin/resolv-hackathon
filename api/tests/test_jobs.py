@@ -9,6 +9,7 @@ from fastapi import HTTPException
 from api.app.contracts import Case, Verdict
 from api.app.fake import FakeJudge
 from api.app.jobs import JobRunner
+from api.app.sample import ORDER
 from api.app.store import Store, get_case, save_case
 
 
@@ -23,7 +24,7 @@ def new_case(store: Store, case_id: str, status: str = "awaiting_video") -> None
     case = Case.model_validate(
         dict(
             id=case_id,
-            order_id="order",
+            order_id=ORDER.id,
             claim_type="damaged",
             description="",
             status=status,

@@ -7,7 +7,12 @@ from pathlib import Path
 
 from fastapi import HTTPException
 
+from api.app.catalog import initialize_catalog
 from api.app.contracts import Case
+from api.app.usage import initialize_usage
+
+
+MIGRATIONS = Path(__file__).resolve().parents[1] / "migrations"
 
 
 class Store:
@@ -17,23 +22,32 @@ class Store:
     def initialize(self) -> None:
         self.root.mkdir(parents=True, exist_ok=True)
         with self.transaction() as db:
-            db.execute("CREATE TABLE IF NOT EXISTS cases (id TEXT PRIMARY KEY, body TEXT NOT NULL)")
-            db.execute(
-                "CREATE TABLE IF NOT EXISTS listings (id TEXT PRIMARY KEY, body TEXT NOT NULL)"
-            )
-            db.execute(
-                "CREATE TABLE IF NOT EXISTS listing_photos "
-                "(path TEXT PRIMARY KEY, mime TEXT NOT NULL, image BLOB NOT NULL)"
-            )
-            db.execute("CREATE TABLE IF NOT EXISTS initialized (name TEXT PRIMARY KEY)")
-            db.execute(
-                "CREATE TABLE IF NOT EXISTS upload_links "
-                "(case_id TEXT PRIMARY KEY, digest BLOB UNIQUE NOT NULL)"
-            )
+            version = db.execute("PRAGMA user_version").fetchone()[0]
+            migrations = sorted(MIGRATIONS.glob("*.sql"))
+            if version > len(migrations):
+                raise RuntimeError("Database schema is newer than this API.")
+            for number, path in enumerate(migrations, start=1):
+                if int(path.name.split("_", 1)[0]) != number:
+                    raise RuntimeError(f"Expected migration {number}, found {path.name}")
+                if number <= version:
+                    continue
+                # executescript would commit the surrounding migration transaction.
+                statement = ""
+                for line in path.read_text().splitlines(keepends=True):
+                    statement += line
+                    if sqlite3.complete_statement(statement):
+                        db.execute(statement)
+                        statement = ""
+                if statement.strip():
+                    raise RuntimeError(f"Incomplete SQL in {path.name}")
+                db.execute(f"PRAGMA user_version = {number}")
+            initialize_catalog(db)
+            initialize_usage(db)
 
     @contextmanager
     def connection(self) -> Iterator[sqlite3.Connection]:
         with closing(sqlite3.connect(self.root / "cases.sqlite3", timeout=10)) as db:
+            db.execute("PRAGMA foreign_keys = ON")
             yield db
 
     @contextmanager
@@ -53,7 +67,8 @@ def get_case(db: sqlite3.Connection, case_id: str) -> Case:
 def save_case(db: sqlite3.Connection, case: Case) -> None:
     validated = Case.model_validate(case.model_dump())
     db.execute(
-        "INSERT OR REPLACE INTO cases VALUES (?, ?)", (validated.id, validated.model_dump_json())
+        "INSERT INTO cases(id, body) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET body=excluded.body",
+        (validated.id, validated.model_dump_json()),
     )
 
 
