@@ -1,9 +1,9 @@
 # Unboxing Judge: UI design
 
-The approved two-role design (approved 14 Nov 2026). Mockups:
-<https://claude.ai/artifact/Wjia1FFmYRZwFUavqofsAX>. Game owns `web/`; build
-every screen from this file. Where this file and PLAN.md disagree on data or
-limits, PLAN.md wins.
+Use [shadcn/ui](https://ui.shadcn.com/docs) as the design reference for web
+components, interaction patterns, and theming. Game owns the web client.
+This guide specifies the buyer and shop screens, brand, and accessibility
+requirements. [PLAN.md](PLAN.md) defines product behavior, data, and limits.
 
 ## 1. Character
 
@@ -15,10 +15,9 @@ decide."**
 
 ## 2. Scope
 
-- Desktop web app for windows **1024 px and wider**. Below that, show one
-  line: "Open Unboxing Judge on a computer."
-- One exception: a phone-sized upload page reached by scanning a QR code on
-  the video step.
+- Use the desktop layout at 1024 px and wider. In narrow windows, stack
+  the review desk and case panels. Let wide tables scroll inside their panels.
+- Keep the dedicated QR upload page optimized for a phone camera roll.
 - Two demo roles chosen on a role picker, no password: **buyer** and **shop
   owner**.
 
@@ -45,6 +44,14 @@ Supporting: yellow hover `#f4ca31`, focus ring `#b28b00`, selected border
 State tints: pass `#e0ebdf` / border `#b5cab3`; flag `#f8e4db` / `#edc6ba`;
 unclear `#f9efda` / `#e5d5ad`. Error alert `#fff0e9` text `#a2462f`; notice
 `#eef5e9` text `#456340`.
+
+Apply the palette through [shadcn/ui theme tokens](https://ui.shadcn.com/docs/theming).
+Use the page colour for `--background`, ink for `--foreground`, panel colour
+for `--card`, hairlines for `--border`, and the focus colour for `--ring`.
+Pair gavel yellow (`--primary`) with dark text (`--primary-foreground`) in
+both themes. The project palette calls its secondary text colour `--muted`;
+in shadcn/ui this value belongs to `--muted-foreground`, while `--muted`
+is the quiet surface colour.
 
 ## 4. Type
 
@@ -140,13 +147,24 @@ blurring can miss faces.
 
 ## 9. Components
 
+Choose components from the [shadcn/ui catalogue](https://ui.shadcn.com/docs/components)
+according to the task on each screen.
+
+| Screen or task | Components and use |
+|---|---|
+| Orders, reports, shop inbox, products | Table for records, Badge for status, Button for row actions. Keep status text visible alongside colour. |
+| Role picker and complaint | Card for each role, Radio Group for the single claim choice, Field and Textarea for the optional description. |
+| Desktop and phone upload | Label and file Input for the video, Progress for bytes sent, Alert for a rejection or warning. |
+| Shop review | Card for evidence pairs, Badge for verdict state, Collapsible for raw JSON. Timestamped findings use keyboard-accessible buttons that seek the video. |
+| Shop decision | Radio Group for the decision, Select for the disagreement reason, Textarea for the buyer-facing note. |
+
 - **Buttons**: primary is yellow with dark text, min height 45px, radius 8px,
   trailing arrow icon, lifts 1px on hover; one per step. Secondary is ink
   fill, white text. Outline is white with a hairline, for the second choice in
   a pair. Text buttons for back, replace, delete (red). Disabled at 50%
   opacity. Tap targets at least 44px.
 - **Claim option**: bordered card with icon, bold label, muted sub-line.
-  Selected: `#d9b625` border, inset ring, `#fffbeb` fill, `aria-pressed`.
+  Selected: `#d9b625` border, inset ring, `#fffbeb` fill. Expose the selection through the radio control’s checked state.
 - **Check row**: 25px round icon, check name, mono status on the right.
   The four checks always in this order: Parcel seal, Listing match, Product
   damage, Video continuity.
