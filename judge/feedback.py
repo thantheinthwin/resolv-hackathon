@@ -48,6 +48,7 @@ class FeedbackState:
     opening_review_pending: bool = False
     complaint_review_pending: bool = False
     failed_comparisons: set[str] = field(default_factory=set)
+    complaint_evidence: set[tuple[str, float]] | None = None
 
 
 class ComplaintFeedback(BaseModel):
@@ -165,7 +166,15 @@ def build_complaint_feedback(
     if verdict.verdict == "buyer_right" and check is not None and check.status == "flag":
         times = {finding.t for finding in check.findings}
         for evidence in verdict.evidence:
-            if evidence.check == check_name and evidence.result == "flag" and evidence.t in times:
+            if (
+                evidence.check == check_name
+                and evidence.result == "flag"
+                and evidence.t in times
+                and (
+                    state.complaint_evidence is None
+                    or (evidence.check, evidence.t) in state.complaint_evidence
+                )
+            ):
                 return _feedback(
                     "complaint_supported",
                     f"The {en_label} check supports the complaint at {evidence.t} s.",

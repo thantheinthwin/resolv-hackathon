@@ -477,3 +477,48 @@ def test_run_requires_video_even_with_a_written_complaint(
 
     with pytest.raises(PipelineError, match="regular video.mp4 file"):
         run(folder.parent / "no-video", inputs)
+
+
+def test_wrong_size_complaint_is_not_supported_by_a_color_mismatch(
+    case: tuple[Path, JudgeInputs, FakeResponses],
+) -> None:
+    folder, inputs, _ = case
+
+    class ColorMismatchResponses(FakeResponses):
+        def parse(self, **kwargs: object) -> SimpleNamespace:
+            response = super().parse(**kwargs)
+            schema = kwargs["text_format"].__name__
+            if schema == "MatchResponse":
+                payload = kwargs["input"][1]["content"][0]["text"]
+                if json.loads(payload.splitlines()[0])["check"] == "variant":
+                    response.output_parsed = {
+                        "status": "flag",
+                        "confidence": 0.98,
+                        "findings": [
+                            {
+                                "t": FINDING_TIME,
+                                "note_en": "The shirt is red.",
+                                "note_th": "เสื้อสีแดง",
+                            }
+                        ],
+                        "note_en": "Color differs from the order.",
+                    }
+            if schema == "ComplaintSelection":
+                response.output_parsed = {
+                    "confidence": 0.98,
+                    "allegations": [{"kind": "size", "finding_ids": []}],
+                }
+            return response
+
+    result = run_submission(
+        folder,
+        inputs.model_copy(update={"claim_type": "wrong_item", "description": "Wrong size"}),
+        review=lambda _: True,
+        model="test-model",
+        client=SimpleNamespace(responses=ColorMismatchResponses()),
+    )
+
+    assert result.verdict.verdict == "buyer_right"
+    assert result.feedback is not None
+    assert result.feedback.result == "needs_more_evidence"
+    assert result.verdict.evidence[0].t == FINDING_TIME
