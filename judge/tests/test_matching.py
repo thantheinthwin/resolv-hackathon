@@ -14,6 +14,7 @@ from judge.matching import (
     MatchError,
     ReviewedListingPhoto,
     compare_listing,
+    analyze_step5,
 )
 from judge.privacy import SanitizedFrame
 from judge.vision import VisionObservation
@@ -238,4 +239,48 @@ def test_rejects_untrusted_raw_listing_photo() -> None:
     client = FakeClient(all_passes())
     with pytest.raises(MatchError, match="ReviewedListingPhoto"):
         compare(client, photos=[image()])
+    assert not client.responses.calls
+
+
+def test_full_step5_runs_observation_before_five_checks() -> None:
+    class StageResponses(FakeResponses):
+        def parse(self, **kwargs: object) -> SimpleNamespace:
+            if kwargs["text_format"] is VisionObservation:
+                with self.lock:
+                    self.calls.append(kwargs)
+                return SimpleNamespace(output_parsed=observation())
+            return super().parse(**kwargs)
+
+    client = FakeClient(all_passes())
+    client.responses = StageResponses(all_passes())
+    result = analyze_step5(
+        [frame()],
+        listing=LISTING,
+        order=ORDER,
+        listing_photos=[photo()],
+        privacy_approved=True,
+        client=client,
+        model="mock-vision",
+    )
+    assert result.observation.status == "observed"
+    assert set(result.checks) == set(CHECK_NAMES)
+    assert len(client.responses.calls) == 6
+    assert client.responses.calls[0]["text_format"] is VisionObservation
+    assert all(
+        call["text_format"] is not VisionObservation
+        for call in client.responses.calls[1:]
+    )
+
+
+def test_stage_never_contacts_model_before_privacy_review() -> None:
+    client = FakeClient(all_passes())
+    with pytest.raises(MatchError, match="privacy approval"):
+        analyze_step5(
+            [frame()],
+            listing=LISTING,
+            order=ORDER,
+            listing_photos=[photo()],
+            client=client,
+            model="mock-vision",
+        )
     assert not client.responses.calls
