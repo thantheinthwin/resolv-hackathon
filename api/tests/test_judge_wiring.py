@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 from api.app.contracts import Verdict
 from api.app.judging import CaseJudge
+from api.app.photo_formats import PHOTO_FORMATS
 from api.app.store import Store
 from api.main import create_app
 from judge import (
@@ -140,8 +141,8 @@ def test_review_uses_current_catalog_and_all_photos(
 ) -> None:
     monkeypatch.setenv("DEMO_PASSCODE", "test")
     photos = [
-        cv2.imencode(".png", np.full((16, 16, 3), value, dtype=np.uint8))[1].tobytes()
-        for value in (30, 110, 200)
+        cv2.imencode("." + ext, np.full((16, 16, 3), value, dtype=np.uint8))[1].tobytes()
+        for (ext, _), value in zip(PHOTO_FORMATS.values(), (30, 110, 200), strict=True)
     ]
     model_inputs: list[JudgeInputs] = []
 
@@ -160,7 +161,7 @@ def test_review_uses_current_catalog_and_all_photos(
         response = client.post(
             "/api/listings",
             data={"title": "Rucksack", "price": "125", "colors": "Emerald", "sizes": "XL"},
-            files=[("photos", ("bag.png", photo, "image/png")) for photo in photos[:2]],
+            files=[("photos", ("bag.png", photo, "image/png")) for photo in photos],
         )
         assert response.status_code == 201
         product = response.json()
@@ -195,17 +196,20 @@ def test_review_uses_current_catalog_and_all_photos(
 
         def approve(request: ReviewRequest) -> bool:
             assert request.stage == "visual"
+            assert [name for name, _ in request.images] == [
+                f"listing/{i}.{ext}" for i, (ext, _) in enumerate(PHOTO_FORMATS.values(), 1)
+            ]
             reviewed_photos.extend(image for _, image in request.images)
             return True
 
         prepared = worker.prepare(case_id, video, approve)
-        assert reviewed_photos == photos[:2]
+        assert reviewed_photos == photos
         (inputs,) = model_inputs
         assert inputs.order.id == order["id"] and inputs.order.listing_id == product["id"]
         assert inputs.order.variant.model_dump() == {"color": "Emerald", "size": "XL"}
         assert inputs.listing.model_dump(mode="json") == product
         assert (inputs.claim_type, inputs.description) == ("missing", "Missing strap")
-        assert [int(photo.image[0, 0, 0]) for photo in inputs.listing_photos] == [30, 110]
+        assert [int(photo.image[0, 0, 0]) for photo in inputs.listing_photos] == [30, 110, 200]
         assert all(photo.privacy_reviewed for photo in inputs.listing_photos)
         assert worker.run(directory) == prepared
 
@@ -224,3 +228,9 @@ def test_review_uses_current_catalog_and_all_photos(
         assert fallback.case_id == case_id
         assert [step.name for step in fallback.steps] == ["sampling"]
         assert fallback != prepared and len(model_inputs) == 1
+
+        with Store(tmp_path).transaction() as db:
+            path = product["photos"][0].removeprefix("/api/files/")
+            db.execute("UPDATE listing_photos SET mime='unknown' WHERE path=?", (path,))
+        with pytest.raises(ValueError, match="Unsupported listing photo format"):
+            worker.prepare(case_id, video, approve)

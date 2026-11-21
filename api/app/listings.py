@@ -12,6 +12,7 @@ from starlette.datastructures import FormData, UploadFile
 from api.app.catalog import create_reportable_product
 from api.app.contracts import Listing
 from api.app.multipart import bounded_form
+from api.app.photo_formats import PHOTO_FORMATS
 from api.app.sample import LISTING
 from api.app.store import Store
 from api.app.views import ListingForm
@@ -19,11 +20,6 @@ from api.app.views import ListingForm
 MAX_PHOTO_BYTES = 10_000_000
 MAX_PHOTO_PIXELS = 24_000_000
 MAX_FORM_BYTES = 3 * MAX_PHOTO_BYTES + 65_536
-PHOTO_FORMATS = {
-    "JPEG": ("jpg", "image/jpeg"),
-    "PNG": ("png", "image/png"),
-    "WEBP": ("webp", "image/webp"),
-}
 
 
 def catalog(store: Store) -> list[Listing]:

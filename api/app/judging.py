@@ -14,6 +14,7 @@ import numpy as np
 
 from api.app.catalog import delivered_order
 from api.app.contracts import Case, Verdict
+from api.app.photo_formats import EXTENSION_BY_MIME
 from api.app.sample import LISTING, OrderWithListing
 from api.app.store import Store, get_case
 from judge import JudgeInputs, ReviewRequest, ReviewRequired, run
@@ -47,7 +48,7 @@ def _context(db: sqlite3.Connection, case: Case) -> _ReviewContext:
         if row is None:
             raise ValueError("A listing photo is unavailable.")
         mime, data = row
-        extension = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"}.get(mime)
+        extension = EXTENSION_BY_MIME.get(mime)
         if extension is None:
             raise ValueError("Unsupported listing photo format.")
         # The host preview uses these names as paths; generate them on the server.
