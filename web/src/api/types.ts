@@ -48,7 +48,12 @@ export interface paths {
         /** Listings */
         get: operations["listings_api_listings_get"];
         put?: never;
-        /** Add Listing */
+        /**
+         * Add Listing
+         * @description Add a product with 1–3 JPEG, PNG, or WebP photos (10 MB and 24 megapixels each).
+         *
+         *     Send colors, sizes and box_contents as repeated fields. The first photo is the main one.
+         */
         post: operations["add_listing_api_listings_post"];
         delete?: never;
         options?: never;
@@ -205,7 +210,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Upload Link */
+        /**
+         * Upload Link
+         * @description Issue a one-time phone link, replacing any previous link for the case.
+         */
         post: operations["upload_link_api_cases__id__upload_link_post"];
         delete?: never;
         options?: never;
@@ -222,7 +230,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Phone Upload */
+        /**
+         * Phone Upload
+         * @description Accept an upload for the case identified by its current phone link.
+         */
         post: operations["phone_upload_api_uploads__token__post"];
         delete?: never;
         options?: never;
@@ -671,16 +682,19 @@ export interface operations {
                 "multipart/form-data": {
                     /** Title */
                     title: string;
-                    /** Description */
-                    description: string;
+                    /**
+                     * Description
+                     * @default
+                     */
+                    description?: string;
                     /** Box Contents */
-                    box_contents: string[];
+                    box_contents?: string[];
                     /** Price */
                     price: number;
                     /** Colors */
-                    colors: string[];
+                    colors?: string[];
                     /** Sizes */
-                    sizes: string[];
+                    sizes?: string[];
                     /** Photos */
                     photos: string[];
                 };
@@ -688,7 +702,7 @@ export interface operations {
         };
         responses: {
             /** @description Successful Response */
-            200: {
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -696,22 +710,13 @@ export interface operations {
                     "application/json": components["schemas"]["Listing"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Invalid multipart form or request */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-            /** @description Planned for the upload integration checkpoint. */
-            501: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
+                    "application/json": components["schemas"]["ErrorDetail"] | components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -1021,6 +1026,15 @@ export interface operations {
                     "application/json": components["schemas"]["UploadResult"];
                 };
             };
+            /** @description Unknown case or upload link */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
             /** @description Case already has a video */
             409: {
                 headers: {
@@ -1030,7 +1044,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description Invalid video or request */
+            /** @description Invalid multipart form or request */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -1063,6 +1077,24 @@ export interface operations {
                     "application/json": components["schemas"]["UploadLink"];
                 };
             };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -1070,15 +1102,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-            /** @description Planned for the upload integration checkpoint. */
-            501: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
         };
@@ -1107,7 +1130,7 @@ export interface operations {
         };
         responses: {
             /** @description Successful Response */
-            200: {
+            202: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1115,22 +1138,31 @@ export interface operations {
                     "application/json": components["schemas"]["UploadResult"];
                 };
             };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-            /** @description Planned for the upload integration checkpoint. */
-            501: {
+            /** @description Unknown case or upload link */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+            /** @description Case already has a video */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+            /** @description Invalid multipart form or request */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"] | components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -1155,6 +1187,8 @@ export interface operations {
                 };
                 content: {
                     "image/png": unknown;
+                    "image/jpeg": unknown;
+                    "image/webp": unknown;
                     "video/mp4": unknown;
                     "video/quicktime": unknown;
                     "video/webm": unknown;

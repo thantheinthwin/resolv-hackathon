@@ -17,7 +17,7 @@ The two contracts are where our work meets. PLAN.md section 6 has every field.
 
 ## Verify a boundary change
 
-Use [the planned models and routes](PLAN.md#6-data-and-contracts) for design and the running API schema at `/openapi.json` for implemented HTTP operations. The setup baseline exposes sample case routes, the shared models, a sample verdict, the client generator, and `make check`. Direct case video upload and persisted progress events are implemented. Phone upload and listing creation still return 501. Report missing checks explicitly.
+Use [the planned models and routes](PLAN.md#6-data-and-contracts) for design and the running API schema at `/openapi.json` for implemented HTTP operations. The setup baseline exposes sample case routes, the shared models, a sample verdict, the client generator, and `make check`. Desktop and one-time phone uploads share video intake and persisted progress events. Listing creation accepts a multipart form with repeated photo and option fields. Report missing checks explicitly.
 
 | Boundary | Producer check | Consumer check |
 | --- | --- | --- |

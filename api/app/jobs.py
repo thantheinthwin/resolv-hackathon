@@ -14,7 +14,7 @@ from fastapi import HTTPException
 
 from api.app.contracts import Case, ProgressEvent, Verdict
 from api.app.fake import Judge
-from api.app.store import Store, get_case, save_case
+from api.app.store import Store, case_for_upload_link, get_case, save_case
 
 log = logging.getLogger(__name__)
 
@@ -104,7 +104,7 @@ class JobRunner:
     def _backup(self, case_id: str) -> Path:
         return self.store.root / ".replaced" / self._case_dir(case_id).name
 
-    def submit(self, case_id: str, staged_video: Path) -> None:
+    def submit(self, case_id: str, staged_video: Path, link_digest: bytes | None = None) -> None:
         """Accept an inspected upload, or reject a competing attempt without touching its file."""
         with self._lifecycle:
             if self._pool is None:
@@ -115,6 +115,8 @@ class JobRunner:
             installed: Path | None = None
             try:
                 with self.store.transaction() as db:
+                    if link_digest is not None and case_for_upload_link(db, link_digest) != case_id:
+                        raise HTTPException(404, "Upload link does not belong to this case.")
                     case = get_case(db, case_id)
                     folder = self._case_dir(case.id)
                     case.status = "checking"
@@ -127,6 +129,9 @@ class JobRunner:
                     )
                     if claim.rowcount != 1:
                         raise HTTPException(409, "The case already has an accepted upload.")
+                    # Both desktop and phone acceptance revoke the link. Rollback
+                    # leaves it usable if the upload cannot be durably installed.
+                    db.execute("DELETE FROM upload_links WHERE case_id=?", (case_id,))
                     if folder.exists():
                         backup = self._backup(case_id)
                         if backup.exists():
