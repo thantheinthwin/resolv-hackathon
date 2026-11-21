@@ -95,9 +95,9 @@ def test_route_contracts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Non
         assert client.get(buyer_route).json()["status"] == "sent"
         assert client.get("/api/shop/cases").json()[0]["display"] == "unsure"
         assert client.post(buyer_route + "/upload-link").status_code == 501
-        assert client.get(buyer_route + "/events").status_code == 501
+        assert client.get(buyer_route + "/events").status_code == 409
         files = {"video": ("test.mp4", b"sample", "video/mp4")}
-        assert client.post(buyer_route + "/video", files=files).status_code == 501
+        assert client.post(buyer_route + "/video", files=files).status_code == 422
         assert client.post("/api/uploads/sample", files=files).status_code == 501
         assert client.delete(buyer_route).status_code == 204
         assert client.get(buyer_route).status_code == 404
@@ -122,7 +122,10 @@ def test_deferred_uploads_never_read_body(tmp_path: Path, monkeypatch: pytest.Mo
             == "binary"
         )
         for url in ("/api/cases/UJ-SAMPLE/video", "/api/uploads/token", "/api/listings"):
-            for passcode, expected in (("invalid", 403), ("for-tests", 501)):
+            for passcode, expected in (
+                ("invalid", 403),
+                ("for-tests", 409 if url.endswith("/video") else 501),
+            ):
                 response = client.post(
                     url,
                     headers={

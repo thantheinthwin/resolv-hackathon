@@ -168,7 +168,7 @@ export interface paths {
         };
         /**
          * Events
-         * @description Replay the sample events for a completed case.
+         * @description Stream persisted progress in order, including earlier events.
          */
         get: operations["events_api_cases__id__events_get"];
         put?: never;
@@ -239,7 +239,7 @@ export interface paths {
         };
         /**
          * Media
-         * @description Serve the sample catalog image; case media is introduced with video upload.
+         * @description Serve catalog images and videos associated with an uploaded case.
          */
         get: operations["media_api_files__path__get"];
         put?: never;
@@ -969,6 +969,15 @@ export interface operations {
                     "text/event-stream": unknown;
                 };
             };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -976,15 +985,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-            /** @description Planned for the upload integration checkpoint. */
-            501: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
         };
@@ -1013,7 +1013,7 @@ export interface operations {
         };
         responses: {
             /** @description Successful Response */
-            200: {
+            202: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1021,22 +1021,22 @@ export interface operations {
                     "application/json": components["schemas"]["UploadResult"];
                 };
             };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-            /** @description Planned for the upload integration checkpoint. */
-            501: {
+            /** @description Case already has a video */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+            /** @description Invalid video or request */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"] | components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -1155,6 +1155,11 @@ export interface operations {
                 };
                 content: {
                     "image/png": unknown;
+                    "video/mp4": unknown;
+                    "video/quicktime": unknown;
+                    "video/webm": unknown;
+                    "video/x-matroska": unknown;
+                    "video/x-msvideo": unknown;
                 };
             };
             /** @description Validation Error */
