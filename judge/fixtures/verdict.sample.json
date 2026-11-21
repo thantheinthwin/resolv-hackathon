@@ -1,0 +1,43 @@
+{
+  "case_id": "UJ-SAMPLE",
+  "verdict": "needs_human",
+  "display": "unsure",
+  "leaning": "none",
+  "confidence": 0,
+  "flags": [],
+  "checks": {
+    "seal": {
+      "status": "unclear",
+      "confidence": 0,
+      "findings": []
+    },
+    "listing": {
+      "status": "unclear",
+      "confidence": 0,
+      "findings": []
+    },
+    "damage": {
+      "status": "unclear",
+      "confidence": 0,
+      "findings": []
+    },
+    "continuity": {
+      "status": "unclear",
+      "confidence": 0,
+      "findings": []
+    }
+  },
+  "evidence": [],
+  "reason": {
+    "en": "Evidence has not been analyzed yet.",
+    "th": "ยังไม่ได้วิเคราะห์หลักฐาน"
+  },
+  "steps": [
+    {
+      "name": "scaffold",
+      "kind": "code",
+      "seconds": 0,
+      "output": "Sample verdict only; no video analysis performed"
+    }
+  ]
+}
