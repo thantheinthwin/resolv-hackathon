@@ -7,6 +7,12 @@ import { formatPrice } from "../lib/price";
 import type { Listing } from "../lib/models";
 import styles from "./storefront.module.css";
 
+function variantSummary(values: string[], term: string, label: string) {
+  if (values.length <= 2) return values.join(" · ");
+  const match = term && values.find((value) => value.toLocaleLowerCase().includes(term));
+  return match ? match + " +" + (values.length - 1) : values.length + " " + label;
+}
+
 export function ProductGrid({ products }: { products: Listing[] }) {
   const [query, setQuery] = useState("");
   const term = query.trim().toLocaleLowerCase();
@@ -21,7 +27,7 @@ export function ProductGrid({ products }: { products: Listing[] }) {
           <input
             type="search"
             aria-label="Search products"
-            placeholder="Search by product, colour or size"
+            placeholder="Search products or options"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
@@ -55,10 +61,8 @@ export function ProductGrid({ products }: { products: Listing[] }) {
               </div>
               <p className={styles.options}>
                 {[
-                  item.colors.length > 2
-                    ? item.colors.length + " colours"
-                    : item.colors.join(" · "),
-                  item.sizes.length > 1 ? item.sizes.length + " sizes" : item.sizes[0],
+                  variantSummary(item.colors, term, "colours"),
+                  variantSummary(item.sizes, term, "options"),
                 ]
                   .filter(Boolean)
                   .join(" · ")}
