@@ -147,10 +147,10 @@ class SubmissionResult(BaseModel):
         if any(finding.photo not in self.buyer_photos for finding in self.photo_findings):
             raise ValueError("Photo findings must refer to a JPEG in the buyer photo manifest.")
         if self.complaint is not None and any(
-            not (0 <= index < len(self.photo_findings))
-            or self.photo_findings[index].visible_attribute != allegation.kind
+            link.index >= len(self.photo_findings)
+            or self.photo_findings[link.index].visible_attribute != allegation.kind
             for allegation in self.complaint.allegations
-            for index in allegation.photo_evidence
+            for link in allegation.photo_evidence
         ):
             raise ValueError("Complaint photo references must match a finding of that attribute.")
         return self
@@ -303,7 +303,9 @@ def _wrong_item_photo_feedback(
             )
         attribute = next(iter(kinds))
         linked = {
-            index for allegation in complaint.allegations for index in allegation.photo_evidence
+            link.index: link.relation
+            for allegation in complaint.allegations
+            for link in allegation.photo_evidence
         }
     if attribute == "product" and not (inputs.ordered_model or "").strip():
         return _feedback(
@@ -335,7 +337,18 @@ def _wrong_item_photo_feedback(
             "The photos show conflicting details. Confirm which item was received.",
             "ภาพถ่ายแสดงรายละเอียดขัดแย้งกัน โปรดยืนยันว่าสินค้าชิ้นใดเป็นชิ้นที่ได้รับ",
         )
-    candidates = [findings[index] for index in comparable if linked is None or index in linked]
+    candidates = [
+        findings[index]
+        for index in comparable
+        if linked is None
+        or linked.get(index) == ("supports" if findings[index].status == "flag" else "contradicts")
+    ]
+    if not candidates and linked:
+        return _feedback(
+            "needs_more_evidence",
+            "The photo does not resolve the specific complaint. Confirm what differs from the verified order.",
+            "ภาพถ่ายยังสรุปข้อร้องเรียนนี้ไม่ได้ โปรดยืนยันว่ารายละเอียดใดไม่ตรงกับคำสั่งซื้อ",
+        )
     if not candidates:
         return _feedback(
             "needs_more_evidence",

@@ -38,8 +38,10 @@ SYSTEM_PROMPT = (
     "whether supporting or contradicting it. Also report supporting_finding_ids as the subset "
     "whose text directly supports the allegation. Exclude contradictory or neutral findings "
     "from that subset. A color finding cannot establish a size allegation. "
-    "If photo findings are supplied, put their IDs in photo_finding_ids only when the photo "
-    "finding directly addresses the exact attribute and part alleged. A visible sleeve cannot "
+    "If photo findings are supplied, use photo_links only when a finding directly supports "
+    "or contradicts the precise written allegation. Give the supplied finding ID as index "
+    "and state that relation. A different mismatch does not support the written allegation. "
+    "A visible sleeve cannot "
     "resolve a complaint about unseen collar trim. Link a model match only if the text "
     "identifies the model as the complaint. Keep timed finding IDs separate. "
     "Use an empty list when the supplied findings do not address an allegation. "
@@ -64,6 +66,13 @@ class PhotoComplaintFinding(BaseModel):
     note_th: str
 
 
+class PhotoFindingLink(BaseModel):
+    model_config = STRICT
+
+    index: int = Field(ge=0)
+    relation: Literal["supports", "contradicts"]
+
+
 class AllegationSelection(BaseModel):
     model_config = STRICT
 
@@ -72,7 +81,9 @@ class AllegationSelection(BaseModel):
     supporting_finding_ids: list[int] = Field(
         default_factory=list, max_length=MAX_FINDINGS_PER_CHECK
     )
-    photo_finding_ids: list[int] = Field(default_factory=list, max_length=MAX_FINDINGS_PER_CHECK)
+    photo_links: list[PhotoFindingLink] = Field(
+        default_factory=list, max_length=MAX_FINDINGS_PER_CHECK
+    )
 
 
 class ComplaintSelection(BaseModel):
@@ -100,7 +111,7 @@ class GroundedAllegation(BaseModel):
     evidence: list[FindingReference]
     candidates: list[FindingReference]
     supporting_evidence: list[FindingReference] = Field(default_factory=list)
-    photo_evidence: list[int] = Field(default_factory=list)
+    photo_evidence: list[PhotoFindingLink] = Field(default_factory=list)
 
 
 class ComplaintAssessment(BaseModel):
@@ -125,7 +136,18 @@ def _resolve(
         supporting_ids = {
             finding_id for item in matching for finding_id in item.supporting_finding_ids
         }
-        photo_ids = {index for item in matching for index in item.photo_finding_ids}
+        photo_links: list[PhotoFindingLink] = []
+        for index, finding in photo_catalogue.items():
+            if finding.attribute != kind:
+                continue
+            relations = {
+                link.relation
+                for item in matching
+                for link in item.photo_links
+                if link.index == index
+            }
+            if len(relations) == 1:
+                photo_links.append(PhotoFindingLink(index=index, relation=next(iter(relations))))
         check_name = CHECKS[kind]
         references = {
             index: FindingReference(check=check, t=finding.t)
@@ -144,11 +166,7 @@ def _resolve(
                 kind=kind,
                 evidence=[] if variant else direct,
                 candidates=direct if variant else [],
-                photo_evidence=[
-                    index
-                    for index, finding in photo_catalogue.items()
-                    if index in photo_ids and finding.attribute == kind
-                ],
+                photo_evidence=photo_links,
                 supporting_evidence=[]
                 if variant
                 else [FindingReference(check=check_name, t=t) for t in supporting_times],

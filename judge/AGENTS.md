@@ -135,7 +135,8 @@ three recommendation results without a percentage.
 For wrong-item claims, a delivered order resolved by the API and a clear
 reviewed photo can support a model or color mismatch without a usable
 unboxing video. A narrow written allegation requires a photo of that same
-attribute, classified only after its separate privacy review. An omitted
+attribute, linked in the supporting or contradicting direction after its
+separate privacy review. An omitted
 complaint can support an obvious mismatch under the selected wrong-item
 claim. A match requires a specific written allegation and a single-item order.
 The model check needs a legible marking and `SubmissionInputs.ordered_model`

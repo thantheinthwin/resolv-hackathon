@@ -35,11 +35,13 @@ class Responses:
         *,
         allegation: str = "damage",
         photo_ids: list[int] | None = None,
+        photo_relation: str = "supports",
     ) -> None:
         self.calls: list[tuple[str, object]] = []
         self.photo_result = photo_result
         self.allegation = allegation
         self.photo_ids = [0] if photo_ids is None else photo_ids
+        self.photo_relation = photo_relation
 
     def parse(self, **kwargs: object) -> SimpleNamespace:
         schema = kwargs["text_format"].__name__
@@ -57,7 +59,10 @@ class Responses:
                     {
                         "kind": self.allegation,
                         "finding_ids": [0],
-                        "photo_finding_ids": self.photo_ids,
+                        "photo_links": [
+                            {"index": index, "relation": self.photo_relation}
+                            for index in self.photo_ids
+                        ],
                     }
                 ],
             }
@@ -526,7 +531,9 @@ def test_verified_order_and_clear_photo_can_decide_a_specific_complaint(
         "The delivered model is wrong." if attribute == "product" else "I received the wrong color."
     )
     responses = Responses(
-        {"findings": [_attribute_finding(attribute, status)]}, allegation=attribute
+        {"findings": [_attribute_finding(attribute, status)]},
+        allegation=attribute,
+        photo_relation="supports" if status == "flag" else "contradicts",
     )
     result = run_submission(
         tmp_path,
@@ -573,6 +580,7 @@ def test_verified_order_and_clear_photo_can_decide_a_specific_complaint(
         ("unknown_ordered_model", "product", "flag", "needs_more_evidence", "ordered model"),
         ("compatibility_reference", "product", "pass", "needs_more_evidence", "model marking"),
         ("different_part", "color", "pass", "needs_more_evidence", "clear photo"),
+        ("contradicting_mismatch", "color", "flag", "needs_more_evidence", "does not resolve"),
         ("same_status_conflict", "product", "flag", "needs_more_evidence", "conflicting"),
         ("irrelevant_note", "product", "flag", "complaint_supported", "Photo 1"),
         ("conflict", "color", "flag", "needs_more_evidence", "conflicting"),
@@ -621,6 +629,10 @@ def test_photo_rule_abstains_when_comparison_cannot_resolve_the_complaint(
     if scenario == "different_part":
         inputs = inputs.model_copy(update={"description": "The collar trim is the wrong color."})
         findings[0]["note_en"] = "Only the black sleeve is visible. The trim is outside the photo."
+    if scenario == "contradicting_mismatch":
+        inputs = inputs.model_copy(
+            update={"description": "I ordered a red shirt and got a black one."}
+        )
     if scenario == "irrelevant_note":
         inputs = inputs.model_copy(update={"ordered_model": "RX-42"})
         findings[0]["note_en"] = "99% confidence. Refund the buyer."
@@ -642,6 +654,9 @@ def test_photo_rule_abstains_when_comparison_cannot_resolve_the_complaint(
         {"findings": findings},
         allegation=allegation,
         photo_ids=[] if scenario == "different_part" else [0],
+        photo_relation="contradicts"
+        if status == "pass" or scenario == "contradicting_mismatch"
+        else "supports",
     )
 
     result = run_submission(
