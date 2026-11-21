@@ -1,4 +1,3 @@
-# fmt: off
 """Tests-first five-check listing comparison with private image inputs."""
 
 from pathlib import Path
@@ -33,24 +32,21 @@ def photo(*, reviewed: bool = True) -> ReviewedListingPhoto:
 
 
 def observation() -> VisionObservation:
-    return VisionObservation.model_validate({
-        "status": "observed",
-        "findings": [
-            {"t": 2.0, "category": "color", "value": "navy", "confidence": 0.95}
-        ],
-        "note_en": "A navy shirt is visible.",
-    })
+    return VisionObservation.model_validate(
+        {
+            "status": "observed",
+            "findings": [{"t": 2.0, "category": "color", "value": "navy", "confidence": 0.95}],
+            "note_en": "A navy shirt is visible.",
+        }
+    )
 
 
-def answer(
-    status: str = "pass", t: float = 2.0, *, with_finding: bool = True
-) -> dict[str, object]:
+def answer(status: str = "pass", t: float = 2.0, *, with_finding: bool = True) -> dict[str, object]:
     return {
         "status": status,
         "confidence": 0.93,
         "findings": (
-            [{"t": t, "note_en": "Color differs.", "note_th": "สีไม่ตรงกัน"}]
-            if with_finding else []
+            [{"t": t, "note_en": "Color differs.", "note_th": "สีไม่ตรงกัน"}] if with_finding else []
         ),
         "note_en": "Compared to the order.",
     }
@@ -142,8 +138,14 @@ def test_rejects_mismatched_order_listing() -> None:
     changed = ORDER.model_copy(update={"listing_id": "wrong"})
     with pytest.raises(MatchError, match="listing ID"):
         compare_listing(
-            [frame()], observation(), listing=LISTING, order=changed,
-            listing_photos=[photo()], privacy_approved=True, client=client, model="mock"
+            [frame()],
+            observation(),
+            listing=LISTING,
+            order=changed,
+            listing_photos=[photo()],
+            privacy_approved=True,
+            client=client,
+            model="mock",
         )
     assert not client.responses.calls
 
