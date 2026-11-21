@@ -125,6 +125,8 @@ def _phash(gray: np.ndarray) -> np.ndarray:
     return (dct > threshold).ravel()
 
 
+# fmt: off  # temporary diagnostic, will remove
+
 def _continuity(frames: Sequence[SanitizedFrame]) -> tuple[IntegrityCheck, list[IntegrityFlag]]:
     if len(frames) < MIN_HISTORY + 2:
         return IntegrityCheck(
@@ -188,6 +190,8 @@ def _continuity(frames: Sequence[SanitizedFrame]) -> tuple[IntegrityCheck, list[
     return IntegrityCheck(status="pass", confidence=0.7, note_en=NO_CUT_PROOF), []
 
 
+# fmt: on
+
 def _normalize_id(value: str) -> str:
     return re.sub(r"[^A-Z0-9]", "", value.upper())
 
@@ -210,8 +214,6 @@ def _within_one_edit(expected: str, observed: str) -> bool:
         index_long += 1
     return True
 
-
-# fmt: off  # temporary diagnostic, will remove
 
 def _opening_checks(
     frames: Sequence[SanitizedFrame],
