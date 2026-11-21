@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { Package } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "../components/ui/button";
@@ -73,11 +74,9 @@ export function ClaimProduct({
         : "";
   return (
     <div className="claim-product">
-      {!linkedProduct && (
-        <a className="text-link" href="/products">
-          Browse products
-        </a>
-      )}
+      <Link className="text-link" href="/products">
+        Browse products
+      </Link>
       <form
         className="claim-search"
         onSubmit={(event) => {

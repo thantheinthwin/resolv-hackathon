@@ -20,9 +20,9 @@ export default function Desk() {
             <p>Find an item, report a problem, or check a report.</p>
           </CardContent>
           <CardFooter>
-            <a className="text-link" href="/products">
+            <Link className="text-link" href="/products">
               Browse products
-            </a>
+            </Link>
             <Button asChild>
               <Link href="/orders">
                 Continue as buyer <ArrowRight aria-hidden />

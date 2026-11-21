@@ -1,3 +1,4 @@
+import { formatPrice } from "../../lib/price";
 import { listProducts } from "../../lib/public-product";
 import { productPath } from "../../lib/product-links";
 
@@ -27,7 +28,7 @@ export default async function Catalog() {
                   <strong>{item.title}</strong>
                   <span>{[...item.colors, ...item.sizes].join(" · ")}</span>
                 </span>
-                <span className="product-price">฿{item.price.toLocaleString("en-US")}</span>
+                <span className="product-price">{formatPrice(item.price)}</span>
               </a>
             </li>
           ))}

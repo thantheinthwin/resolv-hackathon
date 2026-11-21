@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { findProduct } from "../../../lib/public-product";
 import { productPath } from "../../../lib/product-links";
@@ -11,9 +12,9 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
   return (
     <main className="desk-content">
       <article className="panel product-details">
-        <a className="text-link" href="/products">
+        <Link className="text-link" href="/products">
           All products
-        </a>
+        </Link>
         <h1>{listing.title}</h1>
         <ListingOverview listing={listing} />
         <h2>Need help with this item?</h2>

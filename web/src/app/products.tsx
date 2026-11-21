@@ -10,10 +10,6 @@ import type { Listing } from "../lib/models";
 
 type ListingOverviewFields = Omit<Listing, "id">;
 
-function formatPrice(price: number) {
-  return price.toLocaleString(undefined, { maximumFractionDigits: 20 });
-}
-
 export function ProductLink({ id }: { id: string }) {
   const [state, setState] = useState<{ url: string; copied: boolean }>();
 
