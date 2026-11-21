@@ -24,9 +24,7 @@ def image() -> np.ndarray:
 
 
 def frame(t: float = 2.0) -> SanitizedFrame:
-    return SanitizedFrame(
-        timestamp_seconds=t, image=image(), faces_redacted=0, regions_redacted=1
-    )
+    return SanitizedFrame(timestamp_seconds=t, image=image(), faces_redacted=0, regions_redacted=1)
 
 
 def photo(*, reviewed: bool = True) -> ReviewedListingPhoto:
@@ -265,10 +263,7 @@ def test_full_step5_runs_observation_before_five_checks() -> None:
     assert set(result.checks) == set(CHECK_NAMES)
     assert len(client.responses.calls) == 6
     assert client.responses.calls[0]["text_format"] is VisionObservation
-    assert all(
-        call["text_format"] is not VisionObservation
-        for call in client.responses.calls[1:]
-    )
+    assert all(call["text_format"] is not VisionObservation for call in client.responses.calls[1:])
 
 
 def test_stage_never_contacts_model_before_privacy_review() -> None:
