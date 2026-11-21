@@ -537,7 +537,7 @@ def test_written_variant_complaint_needs_a_directly_verified_attribute(
 
     assert result.verdict.verdict == "buyer_right"
     assert result.feedback is not None
-    assert result.feedback.result == ("needs_human_check" if shows_size else "needs_more_evidence")
+    assert result.feedback.result == "needs_more_evidence"
     if shows_size:
         assert "confirm" in result.feedback.reason.en
     assert result.verdict.evidence[0].t == FINDING_TIME

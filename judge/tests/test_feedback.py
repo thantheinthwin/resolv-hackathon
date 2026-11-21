@@ -200,7 +200,10 @@ def test_model_note_cannot_masquerade_as_a_comparison_failure(
 
 def test_saved_human_review_feedback_loads_as_incomplete() -> None:
     feedback = ComplaintFeedback.model_validate(
-        {"result": "needs_human_check", "reason": {"en": "Check the evidence.", "th": "ตรวจสอบหลักฐาน"}}
+        {
+            "result": "needs_human_check",
+            "reason": {"en": "Check the evidence.", "th": "ตรวจสอบหลักฐาน"},
+        }
     )
     assert feedback.result == "needs_more_evidence"
     assert feedback.reason.en == "Check the evidence."

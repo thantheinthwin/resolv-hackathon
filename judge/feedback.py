@@ -3,13 +3,13 @@
 from dataclasses import dataclass, field
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 from api.app.contracts import ClaimType, Reason, Verdict
 from judge.reasons import CHECK_LABELS
 from judge.verdict import deciding_check_name
 
-FeedbackResult = Literal["complaint_supported", "needs_human_check", "needs_more_evidence"]
+FeedbackResult = Literal["complaint_supported", "complaint_contradicted", "needs_more_evidence"]
 VideoStatus = Literal["absent", "no_usable_frames", "analyzed"]
 
 INTEGRITY_REASONS = {
@@ -60,6 +60,13 @@ class ComplaintFeedback(BaseModel):
     result: FeedbackResult
     reason: Reason
 
+    @field_validator("result", mode="before")
+    @classmethod
+    def read_legacy_result(cls, result: object) -> object:
+        if result == "needs_human_check":
+            return "needs_more_evidence"
+        return result
+
 
 def _feedback(result: FeedbackResult, en: str, th: str) -> ComplaintFeedback:
     return ComplaintFeedback(result=result, reason=Reason(en=en, th=th))
@@ -104,8 +111,9 @@ def build_complaint_feedback(
     state: FeedbackState | None = None,
     purchase_verified: bool = True,
     comparison_pending: bool = False,
+    photo_feedback: ComplaintFeedback | None = None,
 ) -> ComplaintFeedback:
-    """Route cases with missing evidence separately from cases needing judgment."""
+    """Choose one evidence-based recommendation and the next action when needed."""
     state = state if state is not None else FeedbackState()
     priority_reason = _priority_review_reason(verdict, claim_type, state.complaint_review_pending)
     if priority_reason is not None:
@@ -113,10 +121,12 @@ def build_complaint_feedback(
         if not purchase_verified:
             en = f"{en} {PURCHASE_REQUEST[0]}"
             th = f"{th} {PURCHASE_REQUEST[1]}"
-        return _feedback("needs_human_check", en, th)
+        return _feedback("needs_more_evidence", en, th)
     if not purchase_verified:
         return _feedback("needs_more_evidence", *PURCHASE_REQUEST)
     if video_status != "analyzed":
+        if photo_feedback is not None:
+            return photo_feedback
         return _feedback(
             "needs_more_evidence",
             "Add a usable video showing the parcel opening and the reported issue.",
@@ -124,14 +134,14 @@ def build_complaint_feedback(
         )
     if comparison_pending:
         return _feedback(
-            "needs_human_check",
+            "needs_more_evidence",
             "The shop needs to review the video and listing before the product comparison.",
             "ร้านค้าต้องตรวจสอบวิดีโอและรายละเอียดสินค้าก่อนเปรียบเทียบสินค้า",
         )
     seal = verdict.checks.get("seal")
     if state.opening_review_pending:
         return _feedback(
-            "needs_human_check",
+            "needs_more_evidence",
             "The shop needs to inspect the parcel opening in the supplied footage.",
             "ร้านค้าต้องตรวจสอบช่วงเปิดพัสดุจากวิดีโอที่ส่งมา",
         )
@@ -153,21 +163,21 @@ def build_complaint_feedback(
     check = verdict.checks.get(check_name)
     if check_name in state.failed_comparisons:
         return _feedback(
-            "needs_human_check",
+            "needs_more_evidence",
             "The product comparison could not be completed. The shop needs to review the case.",
             "ไม่สามารถเปรียบเทียบสินค้าได้สำเร็จ ร้านค้าต้องตรวจสอบกรณีนี้",
         )
     if check_name == "variant" and state.complaint_has_variant_candidates:
         return _feedback(
-            "needs_human_check",
+            "needs_more_evidence",
             "The shop needs to confirm that the variant finding shows the specific color or size reported.",
             "ร้านค้าต้องยืนยันว่าหลักฐานตัวเลือกสินค้าแสดงสีหรือขนาดที่ผู้ซื้อแจ้ง",
         )
     en_label, th_label = CHECK_LABELS[check_name]
     if verdict.verdict == "seller_right":
         return _feedback(
-            "needs_human_check",
-            f"The {en_label} check favors the shop. Review it alongside the buyer's complaint.",
+            "needs_more_evidence",
+            f"The {en_label} check favors the shop. Confirm that the evidence directly addresses the complaint.",
             f"ผลการ{th_label}สนับสนุนข้อมูลของร้านค้า โปรดพิจารณาร่วมกับข้อร้องเรียนของผู้ซื้อ",
         )
     if verdict.verdict == "buyer_right" and check is not None and check.status == "flag":
@@ -190,7 +200,7 @@ def build_complaint_feedback(
     if check is None or check.status == "unclear" or verdict.verdict == "buyer_right":
         return _feedback("needs_more_evidence", *EVIDENCE_REQUESTS[check_name])
     return _feedback(
-        "needs_human_check",
+        "needs_more_evidence",
         f"The {en_label} check was inconclusive. The shop needs to review it.",
         f"ผลการ{th_label}ยังสรุปไม่ได้ ร้านค้าต้องตรวจสอบ",
     )

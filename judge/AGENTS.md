@@ -114,28 +114,36 @@ Its `verdict` uses the shared `Verdict` model and video evidence keeps exact
 timestamps. `buyer_photos` lists all case-relative reviewed JPEGs under
 `buyer-photos/`, even when the model returns no findings. Each
 `photo_findings` entry references one of those JPEGs and contains English and
-Thai notes. Photo findings are
-supplemental shop evidence. Only the existing video path can produce a clear
-recommendation. With absent video or zero usable frames the verdict is
-`needs_human`; the separate `complaint` field holds the approved text
-classification, when available, without timestamp claims. Still photos
-cannot establish video continuity, opening seal state, or when damage
-occurred. The shop makes the final decision.
+Thai notes. When no usable video is available, `verdict` stays the shared video verdict
+with no timed findings. The separate `complaint` field holds the approved text
+classification, when available. Still photos cannot establish continuity,
+opening seal state, authenticity, or when damage occurred.
 
-For new submissions, present the `feedback.result` and its bilingual
-`feedback.reason` as the complaint recommendation. `complaint_supported`
-requires a clear buyer-side verdict and an evidence pair at the exact
-timestamp of the deciding finding. A written complaint also needs a direct
-link to a finding that directly supports the allegation. Written color or
-size allegations with an unverified variant finding go to the shop to confirm. `needs_more_evidence` requests a specific
-usable view, for example a close-up of the reported damage.
-`needs_human_check` handles integrity flags, counterfeit claims, pending
-privacy review, evidence that favors the shop, and inconclusive comparisons
-where usable evidence is already present. The reason carries the relevant
-check or evidence request. A product-link case with no linked order requests
-the purchased item and variant. An integrity concern or counterfeit claim
-takes priority and goes to the shop. An unperformed opening review or
-unavailable model comparison is also a shop task.
+Present `feedback.result` and its bilingual `feedback.reason` as the shop's
+complaint recommendation. The shop makes the final decision. The worker emits
+three recommendation results without a percentage.
+
+- `complaint_supported`: Direct evidence supports the complaint. A video needs
+  a clear buyer-side verdict and an exact-timestamp evidence pair. Written
+  complaints also need a direct link to supporting evidence.
+- `complaint_contradicted`: A reviewed photo shows that the specific model or
+  color reported in a single-item order matches the verified purchase.
+- `needs_more_evidence`: The reason states what needs clarification or shop
+  verification. This includes a missing order link, ambiguous comparisons,
+  integrity concerns, counterfeit claims, and pending privacy review.
+
+For wrong-item claims, a delivered order resolved by the API and a clear
+reviewed photo can support a model or color mismatch without a usable
+unboxing video. A narrow written allegation requires a photo of that same
+attribute, classified only after its separate privacy review. An omitted
+complaint can support an obvious mismatch under the selected wrong-item
+claim. A match requires a specific written allegation and a single-item order.
+The model check needs a legible marking and an unambiguous model in the
+verified listing. The color check needs an ordered color and clear neutral
+lighting. If photos disagree on the attribute, more evidence is needed.
+The reason names the numbered photo in `buyer_photos`. Keep `photo_findings`
+and the referenced JPEGs private to the shop. Saved `needs_human_check`
+feedback is read as `needs_more_evidence` with its existing reason.
 
 Completed video-only jobs and the local integrity path also publish a
 `submission.json` with feedback. For product-link cases, the shared
@@ -152,7 +160,9 @@ load the submission result when the job completes. Apply buyer upload limits
 before decoding. Serve only the referenced sanitized JPEGs to the shop.
 Buyer views continue to receive status and shop messages. Game's buyer form
 and shop review need optional media intake and source-specific rendering.
-The current video API still uses `judge.run` and `verdict.json`.
+The current review API requires a video. Thant needs to allow photo-only
+review and upload, then expose the private submission feedback to the shop.
+The video entry point still uses `judge.run` and `verdict.json`.
 
 ### Local opening review
 

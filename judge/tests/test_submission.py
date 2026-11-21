@@ -44,7 +44,10 @@ class Responses:
                 result = {"findings": [_finding(0), _finding(1)]}
         else:
             assert schema == "ComplaintSelection"
-            result = {"confidence": 0.98, "allegations": [{"kind": self.allegation, "finding_ids": [0]}]}
+            result = {
+                "confidence": 0.98,
+                "allegations": [{"kind": self.allegation, "finding_ids": [0]}],
+            }
         return SimpleNamespace(output_parsed=result)
 
 
@@ -470,13 +473,19 @@ def test_mixed_submission_cites_the_presentation_time_of_a_variable_rate_frame(
 
 
 def _attribute_finding(
-    attribute: str | None, status: str, *, index: int = 0,
+    attribute: str | None,
+    status: str,
+    *,
+    index: int = 0,
 ) -> dict[str, object]:
     return {
         "photo_index": index,
         "check": "listing" if attribute == "product" else "variant",
         "status": status,
         "visible_attribute": attribute,
+        "model_markings": {"ordered": "RX-42", "seen": "RX-42" if status == "pass" else "RX-43"}
+        if attribute == "product"
+        else None,
         "note_en": "The photo shows the received item's label or color clearly.",
         "note_th": "ภาพแสดงฉลากหรือสีของสินค้าที่ได้รับอย่างชัดเจน",
     }
@@ -488,15 +497,26 @@ def _attribute_finding(
     [("flag", "complaint_supported"), ("pass", "complaint_contradicted")],
 )
 def test_verified_order_and_clear_photo_can_decide_a_specific_complaint(
-    tmp_path: Path, attribute: str, status: str, expected: str,
+    tmp_path: Path,
+    attribute: str,
+    status: str,
+    expected: str,
 ) -> None:
-    description = "The delivered model is wrong." if attribute == "product" else "I received the wrong color."
+    description = (
+        "The delivered model is wrong." if attribute == "product" else "I received the wrong color."
+    )
     responses = Responses(
         {"findings": [_attribute_finding(attribute, status)]}, allegation=attribute
     )
     result = run_submission(
         tmp_path,
-        _inputs(media=True).model_copy(update={"claim_type": "wrong_item", "description": description}),
+        _inputs(media=True).model_copy(
+            update={
+                "claim_type": "wrong_item",
+                "description": description,
+                "listing": LISTING.model_copy(update={"title": "Shirt model RX-42"}),
+            }
+        ),
         buyer_photos=_photos(),
         review=_allow,
         model="test-model",
@@ -513,13 +533,16 @@ def test_verified_order_and_clear_photo_can_decide_a_specific_complaint(
     assert result.verdict.evidence == []
     assert len(responses.calls) == 2
     assert description not in str(responses.calls[0])
-    assert SubmissionResult.model_validate_json((tmp_path / "submission.json").read_bytes()) == result
+    assert (
+        SubmissionResult.model_validate_json((tmp_path / "submission.json").read_bytes()) == result
+    )
 
 
 @pytest.mark.parametrize(
     ("scenario", "allegation", "status", "expected", "reason"),
     [
         ("photo_only", "", "flag", "complaint_supported", "Photo 1"),
+        ("model_matches_color_differs", "", "flag", "complaint_supported", "Photo 1"),
         ("photo_only", "", "pass", "needs_more_evidence", "which"),
         ("wrong_aspect", "size", "pass", "needs_more_evidence", "size"),
         ("unverified", "color", "flag", "needs_more_evidence", "confirm"),
@@ -527,19 +550,37 @@ def test_verified_order_and_clear_photo_can_decide_a_specific_complaint(
         ("unreviewed_text", "color", "flag", "needs_more_evidence", "privacy"),
         ("unseen_image", "color", "flag", "needs_more_evidence", "clear photo"),
         ("ambiguous", "color", "pass", "needs_more_evidence", "clear photo"),
+        ("unknown_ordered_model", "product", "flag", "needs_more_evidence", "model marking"),
         ("conflict", "color", "flag", "needs_more_evidence", "conflicting"),
         ("multiple_items", "color", "pass", "needs_more_evidence", "all"),
         ("unusable_video", "color", "flag", "complaint_supported", "Photo 1"),
     ],
 )
 def test_photo_rule_abstains_when_comparison_cannot_resolve_the_complaint(
-    tmp_path: Path, scenario: str, allegation: str, status: str, expected: str, reason: str,
+    tmp_path: Path,
+    scenario: str,
+    allegation: str,
+    status: str,
+    expected: str,
+    reason: str,
 ) -> None:
     inputs = _inputs(media=True).model_copy(
-        update={"claim_type": "wrong_item", "description": f"Wrong {allegation}." if allegation else ""}
+        update={
+            "claim_type": "wrong_item",
+            "description": f"Wrong {allegation}." if allegation else "",
+        }
     )
-    findings = [_attribute_finding(None if scenario == "ambiguous" else "color", status)]
+    findings = [
+        _attribute_finding(
+            None if scenario == "ambiguous" else "product" if allegation == "product" else "color",
+            status,
+        )
+    ]
     photos = _photos()
+    if scenario == "model_matches_color_differs":
+        findings.append(_attribute_finding("product", "pass"))
+        listing = LISTING.model_copy(update={"title": "Shirt model RX-42"})
+        inputs = inputs.model_copy(update={"listing": listing})
     if scenario == "unverified":
         inputs = inputs.model_copy(update={"order": ORDER.model_copy(update={"id": ""})})
     if scenario == "missing_ordered_color":
