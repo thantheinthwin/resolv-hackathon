@@ -4,10 +4,9 @@ from typing import Literal
 
 import pytest
 
-from api.app.contracts import Check, CheckStatus, Evidence, Finding, Verdict
-from judge.feedback import VideoStatus, build_complaint_feedback
+from api.app.contracts import Check, CheckStatus, Evidence, Finding, Step, Verdict
+from judge.feedback import FeedbackState, VideoStatus, build_complaint_feedback
 from judge.integrity import IntegrityCheck, IntegrityFlag, IntegrityReport
-from judge.matching import _unclear
 from judge.verdict import decide_verdict
 
 T = 2.125
@@ -101,11 +100,13 @@ def test_routes_missing_evidence_and_human_judgment(
 
 
 def test_pending_privacy_review_belongs_with_the_shop() -> None:
+    verdict = verdict_for("unclear", seal="unclear")
+    verdict.steps = [Step(name="complaint", kind="code", seconds=0, output="Text awaits review")]
     feedback = build_complaint_feedback(
-        verdict_for("unclear", seal="unclear"),
+        verdict,
         "damaged",
         video_status="analyzed",
-        complaint_pending=True,
+        state=FeedbackState(complaint_review_pending=True),
     )
     assert feedback.result == "needs_human_check"
     assert "privacy review" in feedback.reason.en
@@ -144,16 +145,28 @@ def test_product_link_integrity_flag_takes_priority() -> None:
 
 def test_unreviewed_opening_is_a_shop_task() -> None:
     verdict = verdict_for("flag", seal="unclear")
-    verdict.checks["seal"].note_en = "No grounded opening observation available."
-    feedback = build_complaint_feedback(verdict, "damaged", video_status="analyzed")
+    verdict.checks["seal"].note_en = "Operator skipped this step."
+    verdict.checks["seal"].note_th = "ข้ามขั้นตอนนี้"
+    feedback = build_complaint_feedback(
+        verdict,
+        "damaged",
+        video_status="analyzed",
+        state=FeedbackState(opening_review_pending=True),
+    )
     assert feedback.result == "needs_human_check"
     assert "opening" in feedback.reason.en
 
 
 def test_comparison_failure_is_a_shop_task() -> None:
     verdict = verdict_for("unclear")
-    verdict.checks["damage"] = _unclear()
-    feedback = build_complaint_feedback(verdict, "damaged", video_status="analyzed")
+    verdict.checks["damage"].note_en = "Please try again."
+    verdict.checks["damage"].note_th = "โปรดลองอีกครั้ง"
+    feedback = build_complaint_feedback(
+        verdict,
+        "damaged",
+        video_status="analyzed",
+        state=FeedbackState(failed_comparisons={"damage"}),
+    )
     assert feedback.result == "needs_human_check"
     assert "comparison could not be completed" in feedback.reason.en
 
@@ -174,5 +187,14 @@ def test_model_note_cannot_masquerade_as_a_comparison_failure(
 ) -> None:
     verdict = verdict_for(status)
     verdict.checks["damage"].note_en = "This check could not be completed reliably."
+    verdict.checks["damage"].note_th = "ไม่สามารถดำเนินการตรวจสอบนี้ได้อย่างน่าเชื่อถือ"
+    verdict.steps = [
+        Step(
+            name="complaint",
+            kind="model",
+            seconds=0,
+            output="Written complaint awaits privacy review",
+        )
+    ]
     feedback = build_complaint_feedback(verdict, "damaged", video_status="analyzed")
     assert feedback.result == expected

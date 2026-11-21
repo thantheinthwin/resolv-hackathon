@@ -1,6 +1,7 @@
 """Analyze buyer text, photos and video through the applicable judge stages."""
 
 from base64 import b64encode
+from collections.abc import Callable
 from hashlib import sha256
 from pathlib import Path
 from typing import Annotated, Literal, Self
@@ -16,7 +17,7 @@ from judge.complaint import (
     assess_complaint,
 )
 from judge.config import get_secret
-from judge.feedback import ComplaintFeedback, VideoStatus, build_complaint_feedback
+from judge.feedback import ComplaintFeedback, FeedbackState, VideoStatus, build_complaint_feedback
 from judge.matching import (
     _cache_folder,
     _listing_context,
@@ -131,7 +132,6 @@ def write_video_submission(
     verdict: Verdict,
     video_status: VideoStatus,
     feedback: ComplaintFeedback,
-    complaint: ComplaintAssessment | None = None,
 ) -> None:
     """Publish a submission for a worker that did not compare buyer photos."""
     write_submission(
@@ -141,7 +141,7 @@ def write_video_submission(
             video_status=video_status,
             buyer_photos=[],
             photo_findings=[],
-            complaint=complaint,
+            complaint=None,
             feedback=feedback,
         ),
     )
@@ -244,7 +244,7 @@ def _without_video(
     )
 
 
-def assess_standalone_complaint(
+def _assess_standalone_complaint(
     inputs: SubmissionInputs,
     *,
     review: Review | None,
@@ -282,6 +282,7 @@ def run_submission(
     progress: Progress | None = None,
     model: str | None = None,
     client: VisionClient | None = None,
+    _run_video: Callable[..., Verdict] | None = None,
 ) -> SubmissionResult:
     """Assess supported evidence and atomically publish a private submission.json."""
     directory = case_dir.resolve()
@@ -302,9 +303,11 @@ def run_submission(
     verdict = None
     video_steps: list[Step] = []
     video_status: VideoStatus = "absent"
+    state = FeedbackState()
     if has_video:
+        run_video = run_uploaded_case if _run_video is None else _run_video
         try:
-            verdict = run_uploaded_case(
+            verdict = run_video(
                 directory,
                 inputs,
                 review=review,
@@ -313,6 +316,7 @@ def run_submission(
                 model=model,
                 client=client,
                 steps=video_steps,
+                feedback_state=state,
             )
             video_status = "analyzed"
         except NoSharpFrames:
@@ -338,17 +342,16 @@ def run_submission(
         ]
 
     complaint = None
-    complaint_pending = False
     if verdict is None:
-        complaint = assess_standalone_complaint(
+        complaint = _assess_standalone_complaint(
             inputs, review=review, model=model, client=client, cache_dir=cache_dir
         )
-        complaint_pending = has_text and complaint is None
+        state.complaint_review_pending = has_text and complaint is None
         verdict = _without_video(
             directory.name,
             video_status,
             video_steps,
-            complaint_pending=complaint_pending,
+            complaint_pending=state.complaint_review_pending,
         )
     result = SubmissionResult(
         verdict=verdict,
@@ -360,7 +363,7 @@ def run_submission(
             verdict,
             inputs.claim_type,
             video_status=video_status,
-            complaint_pending=complaint_pending,
+            state=state,
         ),
     )
     for ref, jpeg in reviewed_photos.items():

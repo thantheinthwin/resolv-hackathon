@@ -25,6 +25,7 @@ from api.app.contracts import (
 from judge.complaint import ComplaintAssessment, assess_complaint
 from judge.config import get_secret
 from judge.evidence import FrameAsset, ListingAsset, build_evidence_pack
+from judge.feedback import FeedbackState
 from judge.intake import DARK_FRAME_THRESHOLD, inspect_video
 from judge.integrity import OPENING_WINDOW_SECONDS, OpeningObservation, assess_integrity
 from judge.matching import (
@@ -51,7 +52,6 @@ from judge.vision import (
 )
 
 ReviewStage = Literal["visual", "observation", "complaint", "reason"]
-COMPLAINT_REVIEW_PENDING = "Written complaint awaits privacy review"
 
 
 class PipelineError(ValueError):
@@ -190,6 +190,7 @@ def run_uploaded_case(
     model: str | None,
     client: VisionClient | None,
     steps: list[Step] | None = None,
+    feedback_state: FeedbackState | None = None,
 ) -> Verdict:
     """Assemble a verdict and stage its evidence before publishing the JSON."""
     video = directory / "video.mp4"
@@ -260,6 +261,8 @@ def run_uploaded_case(
                 "Opening observation must cite an exact sampled time in the first 10 seconds."
             )
         integrity = assess_integrity(frames, expected_order_id=inputs.order.id, observation=opening)
+        if feedback_state is not None:
+            feedback_state.opening_review_pending = opening is None
 
     selected_model = model or get_secret("OPENAI_MODEL")
     if not selected_model:
@@ -286,6 +289,7 @@ def run_uploaded_case(
             model=selected_model,
             client=client,
             cache_dir=cache,
+            failed_checks=feedback_state.failed_comparisons if feedback_state is not None else None,
         )
 
     description = inputs.description
@@ -305,10 +309,14 @@ def run_uploaded_case(
             ),
         ),
     )
+    if feedback_state is not None:
+        feedback_state.complaint_review_pending = not complaint_approved
     with step(
         "complaint",
         "model" if description.strip() and complaint_approved else "code",
-        "Assessed the selected claim" if complaint_approved else COMPLAINT_REVIEW_PENDING,
+        "Assessed the selected claim"
+        if complaint_approved
+        else "Written complaint awaits privacy review",
     ):
         complaint = (
             assess_complaint(

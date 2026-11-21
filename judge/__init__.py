@@ -2,8 +2,7 @@
 
 from pathlib import Path
 
-from api.app.contracts import Step, Verdict
-from judge.feedback import VideoStatus, build_complaint_feedback
+from api.app.contracts import Verdict
 from judge.opening_review import OpeningReviewer
 from judge.pipeline import (
     JudgeInputs,
@@ -15,8 +14,7 @@ from judge.pipeline import (
     run_uploaded_case,
     write_atomically,
 )
-from judge.sampling import NoSharpFrames
-from judge.submission import _without_video, assess_standalone_complaint, write_video_submission
+from judge.submission import run_submission
 from judge.vision import VisionClient
 
 __all__ = ["JudgeInputs", "PipelineError", "ReviewRequest", "ReviewRequired", "run"]
@@ -43,38 +41,18 @@ def run(
         sample = Verdict.model_validate_json(fixture.read_bytes())
         verdict = Verdict.model_validate({**sample.model_dump(), "case_id": directory.name})
     else:
-        steps: list[Step] = []
-        status: VideoStatus = "analyzed"
-        complaint = None
-        complaint_pending = False
-        try:
-            verdict = run_uploaded_case(
-                directory,
-                inputs,
-                review=review,
-                opening_review=opening_review,
-                progress=progress,
-                model=model,
-                client=client,
-                steps=steps,
-            )
-        except NoSharpFrames:
-            status = "no_usable_frames"
-            complaint = assess_standalone_complaint(
-                inputs,
-                review=review,
-                model=model,
-                client=client,
-                cache_dir=directory / ".judge-cache",
-            )
-            complaint_pending = bool(inputs.description.strip()) and complaint is None
-            verdict = _without_video(
-                directory.name, status, steps, complaint_pending=complaint_pending
-            )
-        feedback = build_complaint_feedback(
-            verdict, inputs.claim_type, video_status=status, complaint_pending=complaint_pending
-        )
-        write_video_submission(directory, verdict, status, feedback, complaint)
+        if video.is_symlink() or not video.is_file():
+            raise PipelineError("The case must contain a regular video.mp4 file.")
+        verdict = run_submission(
+            directory,
+            inputs,
+            review=review,
+            opening_review=opening_review,
+            progress=progress,
+            model=model,
+            client=client,
+            _run_video=run_uploaded_case,
+        ).verdict
     write_atomically(
         directory / "verdict.json", (verdict.model_dump_json(indent=2) + "\n").encode("utf-8")
     )

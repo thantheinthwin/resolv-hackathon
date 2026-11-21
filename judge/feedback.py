@@ -1,13 +1,11 @@
 """Turn a judge recommendation into one complaint result with a bilingual reason."""
 
+from dataclasses import dataclass, field
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
 from api.app.contracts import ClaimType, Reason, Verdict
-from judge.integrity import OPENING_OBSERVATION_UNAVAILABLE
-from judge.matching import COMPARISON_UNAVAILABLE
-from judge.pipeline import COMPLAINT_REVIEW_PENDING
 from judge.reasons import CHECK_LABELS
 from judge.verdict import deciding_check_name
 
@@ -41,6 +39,15 @@ EVIDENCE_REQUESTS = {
         "โปรดส่งภาพระยะใกล้ที่เห็นความเสียหายและตัวสินค้าอย่างชัดเจน",
     ),
 }
+
+
+@dataclass
+class FeedbackState:
+    """Facts from this submission's review and comparison stages."""
+
+    opening_review_pending: bool = False
+    complaint_review_pending: bool = False
+    failed_comparisons: set[str] = field(default_factory=set)
 
 
 class ComplaintFeedback(BaseModel):
@@ -79,10 +86,7 @@ def _priority_review_reason(
             "The shop needs to verify the product's authenticity.",
             "ร้านค้าต้องตรวจสอบว่าสินค้าเป็นของแท้หรือไม่",
         )
-    if complaint_pending or any(
-        step.name == "complaint" and step.output == COMPLAINT_REVIEW_PENDING
-        for step in verdict.steps
-    ):
+    if complaint_pending:
         return (
             "The written complaint awaits privacy review.",
             "ข้อร้องเรียนที่เขียนไว้ยังรอการตรวจสอบความเป็นส่วนตัว",
@@ -95,12 +99,13 @@ def build_complaint_feedback(
     claim_type: ClaimType,
     *,
     video_status: VideoStatus,
-    complaint_pending: bool = False,
+    state: FeedbackState | None = None,
     purchase_verified: bool = True,
     comparison_pending: bool = False,
 ) -> ComplaintFeedback:
     """Route cases with missing evidence separately from cases needing judgment."""
-    priority_reason = _priority_review_reason(verdict, claim_type, complaint_pending)
+    state = state if state is not None else FeedbackState()
+    priority_reason = _priority_review_reason(verdict, claim_type, state.complaint_review_pending)
     if priority_reason is not None:
         en, th = priority_reason
         if not purchase_verified:
@@ -122,7 +127,7 @@ def build_complaint_feedback(
             "ร้านค้าต้องตรวจสอบวิดีโอและรายละเอียดสินค้าก่อนเปรียบเทียบสินค้า",
         )
     seal = verdict.checks.get("seal")
-    if seal is not None and seal.note_en == OPENING_OBSERVATION_UNAVAILABLE:
+    if state.opening_review_pending:
         return _feedback(
             "needs_human_check",
             "The shop needs to inspect the parcel opening in the supplied footage.",
@@ -144,11 +149,7 @@ def build_complaint_feedback(
 
     check_name = deciding_check_name(claim_type, verdict.checks)
     check = verdict.checks.get(check_name)
-    if (
-        check is not None
-        and check.status == "unclear"
-        and (check.note_en, check.note_th) == COMPARISON_UNAVAILABLE
-    ):
+    if check_name in state.failed_comparisons:
         return _feedback(
             "needs_human_check",
             "The product comparison could not be completed. The shop needs to review the case.",

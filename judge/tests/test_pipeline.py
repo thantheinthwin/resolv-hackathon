@@ -398,3 +398,82 @@ def test_reviewed_video_without_sharp_frames_publishes_evidence_request(
     assert saved.feedback.result == "needs_more_evidence"
     assert "usable video" in saved.feedback.reason.en
     assert responses.calls == []
+
+
+@pytest.mark.parametrize("usable_video", [True, False])
+@pytest.mark.parametrize("complaint", ["empty", "approved", "pending"])
+def test_video_entry_points_publish_equivalent_submission(
+    case: tuple[Path, JudgeInputs, FakeResponses],
+    monkeypatch: pytest.MonkeyPatch,
+    usable_video: bool,
+    complaint: str,
+) -> None:
+    folder, inputs, _ = case
+    other = folder.parent / "submission" / folder.name
+    other.mkdir(parents=True)
+    (other / "video.mp4").write_bytes((folder / "video.mp4").read_bytes())
+    monkeypatch.setattr("judge.pipeline.perf_counter", lambda: 0)
+    if not usable_video:
+
+        def no_frames(_path: Path) -> list[SampledFrame]:
+            raise NoSharpFrames("No usable frames.")
+
+        monkeypatch.setattr("judge.pipeline.sample_frames", no_frames)
+    if complaint == "empty":
+        inputs = inputs.model_copy(update={"description": ""})
+
+    saved_results = []
+    requests = []
+    outputs = []
+    progress_events = []
+    for entrypoint, directory in ((run, folder), (run_submission, other)):
+        responses = FakeResponses()
+        reviews: list[ReviewRequest] = []
+        progress: list[ProgressEvent] = []
+
+        def review(request: ReviewRequest) -> bool:
+            reviews.append(request)
+            return request.stage != "complaint" or complaint == "approved"
+
+        result = entrypoint(
+            directory,
+            inputs,
+            review=review,
+            progress=progress.append,
+            model="test-model",
+            client=SimpleNamespace(responses=responses),
+        )
+        saved = SubmissionResult.model_validate_json((directory / "submission.json").read_bytes())
+        assert (saved.verdict if isinstance(result, Verdict) else saved) == result
+        assert saved.video_status == ("analyzed" if usable_video else "no_usable_frames")
+        assert saved.feedback is not None
+        if not usable_video:
+            assert [step.name for step in saved.verdict.steps] == ["intake", "sampling"]
+            assert [schema for schema, _ in responses.calls] == (
+                ["ComplaintSelection"] if complaint == "approved" else []
+            )
+        if complaint == "pending":
+            assert saved.feedback.result == "needs_human_check"
+            assert "privacy review" in saved.feedback.reason.en
+        saved_results.append(saved)
+        requests.append([(request.stage, request.fingerprint) for request in reviews])
+        outputs.append(sorted(responses.calls))
+        progress_events.append(progress)
+
+    assert saved_results[0] == saved_results[1]
+    assert requests[0] == requests[1]
+    assert outputs[0] == outputs[1]
+    assert progress_events[0] == progress_events[1]
+    assert (
+        Verdict.model_validate_json((folder / "verdict.json").read_bytes())
+        == saved_results[0].verdict
+    )
+
+
+def test_run_requires_video_even_with_a_written_complaint(
+    case: tuple[Path, JudgeInputs, FakeResponses],
+) -> None:
+    folder, inputs, _ = case
+
+    with pytest.raises(PipelineError, match="regular video.mp4 file"):
+        run(folder.parent / "no-video", inputs)
