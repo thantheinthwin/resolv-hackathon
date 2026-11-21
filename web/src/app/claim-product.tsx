@@ -1,5 +1,6 @@
 "use client";
 
+import { ProductGrid } from "./product-grid";
 import { Package } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "../components/ui/button";
@@ -69,35 +70,10 @@ export function ClaimProduct({
     result && "error" in result
       ? result.error
       : result && listings && !item
-        ? "We couldn’t find that item. Check the link or ask the shop for a new one."
+        ? "We couldn’t find that item. Check the link or browse the products."
         : "";
   return (
     <div className="claim-product">
-      <form
-        className="claim-search"
-        onSubmit={(event) => {
-          event.preventDefault();
-          setChecked(value);
-        }}
-      >
-        <label htmlFor="product-link">Product link</label>
-        <Input
-          id="product-link"
-          type="text"
-          inputMode="url"
-          required
-          value={value}
-          onChange={(event) => {
-            setInput(event.target.value);
-            setChecked(undefined);
-          }}
-          aria-describedby="link-help"
-        />
-        <p id="link-help">Open the item’s page in the shop, copy its link, and paste it here.</p>
-        <Button type="submit" disabled={busy}>
-          Find my item
-        </Button>
-      </form>
       {error && <p role="alert">{error}</p>}
       {loadError && (
         <p role="status">
@@ -124,6 +100,32 @@ export function ClaimProduct({
           </Button>
         </div>
       )}
+      {!item && listings && <ProductGrid products={listings} />}
+      <form
+        className="claim-search"
+        onSubmit={(event) => {
+          event.preventDefault();
+          setChecked(value);
+        }}
+      >
+        <label htmlFor="product-link">Product link</label>
+        <Input
+          id="product-link"
+          type="text"
+          inputMode="url"
+          required
+          value={value}
+          onChange={(event) => {
+            setInput(event.target.value);
+            setChecked(undefined);
+          }}
+          aria-describedby="link-help"
+        />
+        <p id="link-help">Already have a link? Paste it to find your item.</p>
+        <Button type="submit" disabled={busy}>
+          Find my item
+        </Button>
+      </form>
     </div>
   );
 }

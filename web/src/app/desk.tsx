@@ -17,7 +17,7 @@ export default function Desk() {
           <CardContent>
             <Package aria-hidden />
             <h2>Buyer</h2>
-            <p>Start a claim or check a report.</p>
+            <p>Find an item, report a problem, or check a report.</p>
           </CardContent>
           <CardFooter>
             <Button asChild>
