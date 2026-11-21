@@ -99,23 +99,6 @@ concrete failure scenario:
   - judge ↔ API changes: Ama and Thant both look.
   - API ↔ web changes: Thant and Game both look.
 
-### Code quality findings on GitHub
-
-- Record each actionable finding on the relevant PR. Include the file and line,
-  the concrete failure or maintenance cost, and a regression check that shows
-  when the finding is fixed. Link the reviewed commit when the line may move.
-- For a design finding, name the responsibility or dependency that causes the
-  problem. Use SOLID or a Refactoring.Guru technique when it helps explain
-  the smallest change that addresses it.
-- Fix findings in your own area. For another service, mention its owner on the
-  relevant PR with a specific review question. Request Ama for judge behavior,
-  Thant for API and storage, and Game for web behavior. Request both owners
-  when their interface changes.
-- Before adding a finding, check current main and existing PR threads for the
-  same failure. Reply in the existing thread with new evidence. When a fix is
-  ready, link its commit and report the regression-check result. Resolve the
-  thread after verification and merge at the usual checkpoint once CI passes.
-
 ## 6. Verify for real
 
 - Run it where it will be demoed: `make dev`, click through the real screens
