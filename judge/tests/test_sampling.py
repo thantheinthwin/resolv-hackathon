@@ -48,6 +48,7 @@ def setup_video(
     path.write_bytes(b"synthetic video")
     capture = FakeCapture(frames, fps)
     monkeypatch.setattr(cv2, "VideoCapture", lambda *args: capture)
+    monkeypatch.setattr("judge.sampling._presentation_start_offset", lambda _: 0.0)
     return path, capture
 
 

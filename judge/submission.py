@@ -239,25 +239,6 @@ def run_submission(
 
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     cache_dir = directory / ".judge-cache"
-    photo_findings: list[PhotoFinding] = []
-    reviewed_photos: dict[str, bytes] = {}
-    if buyer_photos:
-        request = _photo_review(inputs, buyer_photos)
-        _require_review(review, request)
-        selected_model = model or get_secret("OPENAI_MODEL")
-        if not selected_model:
-            raise PipelineError("OPENAI_MODEL must be configured for the judge.")
-        matches = _match_photos(request, model=selected_model, client=client, cache_dir=cache_dir)
-        photos = request.images[: len(buyer_photos)]
-        reviewed_photos = dict(photos)
-        photo_findings = [
-            PhotoFinding(
-                **finding.model_dump(exclude={"photo_index"}), photo=photos[finding.photo_index][0]
-            )
-            for finding in matches.findings
-            if finding.photo_index < len(photos)
-        ]
-
     verdict = None
     video_steps: list[Step] = []
     video_status: VideoStatus = "absent"
@@ -276,6 +257,25 @@ def run_submission(
             video_status = "analyzed"
         except NoSharpFrames:
             video_status = "no_usable_frames"
+
+    photo_findings: list[PhotoFinding] = []
+    reviewed_photos: dict[str, bytes] = {}
+    if buyer_photos:
+        request = _photo_review(inputs, buyer_photos)
+        _require_review(review, request)
+        selected_model = model or get_secret("OPENAI_MODEL")
+        if not selected_model:
+            raise PipelineError("OPENAI_MODEL must be configured for the judge.")
+        matches = _match_photos(request, model=selected_model, client=client, cache_dir=cache_dir)
+        photos = request.images[: len(buyer_photos)]
+        reviewed_photos = dict(photos)
+        photo_findings = [
+            PhotoFinding(
+                **finding.model_dump(exclude={"photo_index"}), photo=photos[finding.photo_index][0]
+            )
+            for finding in matches.findings
+            if finding.photo_index < len(photos)
+        ]
 
     complaint = None
     if verdict is None:

@@ -103,8 +103,9 @@ and its retries.
 Pass the same human review callback as for the video worker. The buyer photo
 request uses the `visual` stage and a distinct fingerprint covering its exact
 redacted JPEGs, listing JPEGs, and comparison data. The listing photo approval
-and the video review do not grant that approval. The buyer complaint is only
-used in a separate text request after the visual stages. Never convert browser
+and the video review do not grant that approval. A supplied video goes through
+intake before any photo requests. The buyer complaint is only used in a
+separate text request. Never convert browser
 form fields into approval flags or filesystem paths. The current video
 opening reviewer and step progress callback still apply to the video path.
 

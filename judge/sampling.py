@@ -4,7 +4,9 @@ These images are UNSANITIZED. Never persist or transmit them before face/PII
 redaction succeeds. This module intentionally performs no external requests.
 """
 
+import json
 import math
+import subprocess
 from pathlib import Path
 
 import cv2
@@ -64,6 +66,40 @@ def _resize_for_output(frame: np.ndarray) -> np.ndarray:
     return cv2.resize(frame, (OUTPUT_WIDTH, target_height), interpolation=cv2.INTER_AREA)
 
 
+def _presentation_start_offset(video: Path) -> float:
+    """Translate the decoder's stream-relative time to the playback timeline."""
+    try:
+        probe = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-protocol_whitelist",
+                "file",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=start_time:format=start_time",
+                "-of",
+                "json",
+                "-i",
+                str(video.resolve()),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=True,
+        )
+        metadata = json.loads(probe.stdout)
+        stream_start = float(metadata["streams"][0].get("start_time", 0))
+        playback_start = float(metadata["format"].get("start_time", 0))
+    except (OSError, subprocess.SubprocessError, TypeError, ValueError, KeyError, IndexError):
+        raise SamplingError("Video playback timeline could not be read.") from None
+    if not math.isfinite(stream_start) or not math.isfinite(playback_start):
+        raise SamplingError("Video has an invalid playback timeline.")
+    return stream_start - playback_start
+
+
 def sample_frames(
     video_path: str | Path, *, max_frames: int = MAX_SELECTED_FRAMES
 ) -> list[SampledFrame]:
@@ -86,6 +122,7 @@ def sample_frames(
         fps = float(capture.get(cv2.CAP_PROP_FPS))
         if not math.isfinite(fps) or fps <= 0:
             raise SamplingError("Invalid video frame rate.")
+        start_offset = _presentation_start_offset(video)
 
         selected: list[SampledFrame] = []
         last_hash: np.ndarray | None = None
@@ -100,8 +137,8 @@ def sample_frames(
             decoded = True
             # The decoder reports the time of the frame it just returned.
             # Average FPS cannot recover the timeline of variable-rate video.
-            timestamp = capture.get(cv2.CAP_PROP_POS_MSEC) / 1000
-            if not math.isfinite(timestamp) or timestamp < 0:
+            timestamp = start_offset + capture.get(cv2.CAP_PROP_POS_MSEC) / 1000
+            if not math.isfinite(timestamp):
                 raise SamplingError("Video contains an invalid frame presentation time.")
             if timestamp + 1e-8 < next_sample_time:
                 continue

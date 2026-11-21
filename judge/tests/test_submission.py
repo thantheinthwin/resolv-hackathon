@@ -13,6 +13,7 @@ import pytest
 from api.app.contracts import ProgressEvent, Verdict
 from api.app.sample import LISTING, ORDER
 from judge import ReviewRequest, ReviewRequired
+from judge.intake import IntakeError
 from judge.matching import ReviewedListingPhoto
 from judge.pipeline import PipelineError
 from judge.privacy import RedactionRegion
@@ -148,14 +149,41 @@ def test_empty_submission_is_invalid(tmp_path: Path) -> None:
     assert not (tmp_path / "submission.json").exists()
 
 
-def test_no_sharp_frames_keeps_photos_and_text(tmp_path: Path) -> None:
+def _write_flat_video(case_dir: Path, frames: int) -> None:
     writer = cv2.VideoWriter(
-        str(tmp_path / "video.mp4"), cv2.VideoWriter_fourcc(*"mp4v"), 2, (64, 64)
+        str(case_dir / "video.mp4"), cv2.VideoWriter_fourcc(*"mp4v"), 2, (64, 64)
     )
     assert writer.isOpened()
-    for _ in range(12):
+    for _ in range(frames):
         writer.write(np.zeros((64, 64, 3), dtype=np.uint8))
     writer.release()
+
+
+def test_rejects_an_invalid_video_before_requesting_photo_review(tmp_path: Path) -> None:
+    _write_flat_video(tmp_path, frames=6)
+    requests: list[ReviewRequest] = []
+    responses = Responses()
+
+    def approve(request: ReviewRequest) -> bool:
+        requests.append(request)
+        return True
+
+    with pytest.raises(IntakeError, match="duration"):
+        run_submission(
+            tmp_path,
+            _inputs(media=True),
+            buyer_photos=_photos(),
+            review=approve,
+            model="test-model",
+            client=SimpleNamespace(responses=responses),
+        )
+    assert requests == []
+    assert responses.calls == []
+    assert not (tmp_path / "submission.json").exists()
+
+
+def test_no_sharp_frames_keeps_photos_and_text(tmp_path: Path) -> None:
+    _write_flat_video(tmp_path, frames=12)
     events: list[ProgressEvent] = []
     result = run_submission(
         tmp_path,
@@ -268,8 +296,9 @@ def test_text_approval_matches_the_transmitted_payload(tmp_path: Path) -> None:
     assert requests[0].text == messages[1]["content"]
 
 
+@pytest.mark.parametrize("video_offset", [0, 2])
 def test_mixed_submission_cites_the_presentation_time_of_a_variable_rate_frame(
-    tmp_path: Path,
+    tmp_path: Path, video_offset: int
 ) -> None:
     manifest: list[str] = []
     for index, duration in enumerate((1.8, 1.5, 2.6, 2.2, 1.0)):
@@ -286,12 +315,24 @@ def test_mixed_submission_cites_the_presentation_time_of_a_variable_rate_frame(
             "ffmpeg",
             "-v",
             "error",
+            "-itsoffset",
+            str(video_offset),
             "-f",
             "concat",
             "-safe",
             "1",
             "-i",
             str(source),
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=400:duration=12",
+            "-map",
+            "0:v",
+            "-map",
+            "1:a",
+            "-c:a",
+            "aac",
             "-fps_mode",
             "vfr",
             "-c:v",
@@ -322,7 +363,7 @@ def test_mixed_submission_cites_the_presentation_time_of_a_variable_rate_frame(
         timeout=15,
     )
     t = float(json.loads(probe.stdout)["frames"][2]["best_effort_timestamp_time"])
-    assert t == 3.32
+    assert t == 3.32 + video_offset
 
     class VideoResponses(Responses):
         def parse(self, **kwargs: object) -> SimpleNamespace:
