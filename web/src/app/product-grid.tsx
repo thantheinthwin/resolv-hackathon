@@ -7,6 +7,12 @@ import { formatPrice } from "../lib/price";
 import type { Listing } from "../lib/models";
 import styles from "./storefront.module.css";
 
+function variantSummary(values: string[], term: string, label: string) {
+  if (values.length <= 2) return values.join(" · ");
+  const match = term && values.find((value) => value.toLocaleLowerCase().includes(term));
+  return match ? match + " +" + (values.length - 1) : values.length + " " + label;
+}
+
 export function ProductGrid({ products }: { products: Listing[] }) {
   const [query, setQuery] = useState("");
   const term = query.trim().toLocaleLowerCase();
@@ -15,19 +21,21 @@ export function ProductGrid({ products }: { products: Listing[] }) {
   );
   return (
     <section className={styles.catalog} aria-label="Browse products">
-      <label className={styles.search}>
-        <Search size={19} aria-hidden />
-        <input
-          type="search"
-          aria-label="Search products"
-          placeholder="Search by product, colour or size"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
-      </label>
-      <p className={styles.count} role="status">
-        {visible.length} {visible.length === 1 ? "product" : "products"}
-      </p>
+      <div className={styles.toolbar}>
+        <label className={styles.search}>
+          <Search size={19} aria-hidden />
+          <input
+            type="search"
+            aria-label="Search products"
+            placeholder="Search products or options"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        </label>
+        <p className={styles.count} role="status">
+          {visible.length} {visible.length === 1 ? "product" : "products"}
+        </p>
+      </div>
       {visible.length === 0 && (
         <p>
           {products.length
@@ -51,7 +59,14 @@ export function ProductGrid({ products }: { products: Listing[] }) {
                 <h3>{item.title}</h3>
                 <strong>฿{formatPrice(item.price)}</strong>
               </div>
-              <p className={styles.options}>{[...item.colors, ...item.sizes].join(" · ")}</p>
+              <p className={styles.options}>
+                {[
+                  variantSummary(item.colors, term, "colours"),
+                  variantSummary(item.sizes, term, "options"),
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </p>
             </a>
           </li>
         ))}

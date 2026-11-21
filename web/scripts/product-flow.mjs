@@ -260,6 +260,14 @@ try {
   await phone.goto("/");
   assert.equal(await phone.getByRole("link", { name: "Browse products" }).count(), 0);
   await phone.getByRole("link", { name: "Continue as buyer" }).click();
+  await phone.setViewportSize({ width: 838, height: 893 });
+  await phone.getByRole("searchbox", { name: "Search products" }).waitFor();
+  assert.equal(
+    await phone.locator(".claim-frame-body").evaluate((el) => getComputedStyle(el).overflowY),
+    "visible",
+  );
+  assert.equal(await phone.locator(".claim-frame-actions").isVisible(), false);
+  await phone.setViewportSize({ width: 390, height: 844 });
   await phone.getByRole("searchbox", { name: "Search products" }).fill(duplicateColor);
   await phone.getByRole("link", { name: new RegExp(duplicateColor) }).click();
   await phone.waitForURL(claimLink.href);

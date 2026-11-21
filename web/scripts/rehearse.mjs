@@ -90,7 +90,6 @@ try {
     .fill(new URL("/products/LS-101", page.url()).href);
   await page.getByRole("button", { name: "Find my item" }).click();
   await page.getByText("Yes, this is my item").waitFor();
-  const frameBaseline = await measureClaimFrame(page);
   const frameBody = page.locator(".claim-frame-body");
   const initialBody = await frameBody.elementHandle();
   await shot();
@@ -102,7 +101,7 @@ try {
   assert.equal(await page.getByRole("button", { name: "Next: add a video" }).isDisabled(), true);
   await page.getByRole("radio", { name: "I received the wrong item, colour or size" }).click();
   await page.locator("textarea").fill("The colour looks different from my order.");
-  await assertStableFrame(page, frameBaseline, "Complaint");
+  const frameBaseline = await measureClaimFrame(page);
   await shot();
   await page.getByText("Next: add a video").click();
   await page.getByRole("heading", { name: "Add your unboxing video." }).waitFor();

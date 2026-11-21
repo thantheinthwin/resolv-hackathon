@@ -1223,6 +1223,18 @@ button.case-sidebar-row:hover,
     border-color: transparent;
   }
 
+  .claim-frame[data-step="workspace"] {
+    block-size: auto;
+    grid-template-rows: auto auto;
+  }
+  .claim-frame[data-step="workspace"] .claim-frame-body {
+    overflow: visible;
+    scrollbar-gutter: auto;
+  }
+  .claim-frame[data-step="workspace"] .claim-frame-actions:empty {
+    display: none;
+  }
+
   .description-field #description-tip {
     min-block-size: 1lh;
   }
