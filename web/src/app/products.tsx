@@ -1,6 +1,7 @@
 "use client";
 
 import { ArrowRight, Link as LinkIcon, Plus } from "lucide-react";
+import { formatPrice } from "../lib/price";
 import { useState } from "react";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
