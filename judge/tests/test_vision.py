@@ -76,7 +76,7 @@ def test_rejects_unsanitized_sampled_frame() -> None:
         scene_change=False,
     )
     with pytest.raises(VisionError, match="SanitizedFrame"):
-        observe_product([raw], client=client, model="mock", privacy_approved=True)  # type: ignore[list-item]
+        observe_product([raw], client=client, model="mock", privacy_approved=True)
     assert not client.responses.calls
 
 
@@ -85,7 +85,8 @@ def test_rejects_empty_and_unsorted_frames() -> None:
     with pytest.raises(VisionError, match="at least one"):
         observe_product([], client=client, model="mock", privacy_approved=True)
     with pytest.raises(VisionError, match="increasing"):
-        observe_product([frame(2.0), frame(1.0)], client=client, model="mock", privacy_approved=True)
+        frames = [frame(2.0), frame(1.0)]
+        observe_product(frames, client=client, model="mock", privacy_approved=True)
     assert not client.responses.calls
 
 
