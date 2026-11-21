@@ -14,6 +14,7 @@ from judge.pipeline import (
     run_uploaded_case,
     write_atomically,
 )
+from judge.submission import run_submission
 from judge.vision import VisionClient
 
 __all__ = ["JudgeInputs", "PipelineError", "ReviewRequest", "ReviewRequired", "run"]
@@ -31,8 +32,8 @@ def run(
 ) -> Verdict:
     """Return and atomically persist the verdict for an uploaded case or fixture."""
     directory = Path(case_dir).resolve()
+    video = directory / "video.mp4"
     if inputs is None:
-        video = directory / "video.mp4"
         if video.exists() or video.is_symlink():
             raise PipelineError("An uploaded video requires trusted JudgeInputs.")
         directory.mkdir(parents=True, exist_ok=True)
@@ -40,7 +41,9 @@ def run(
         sample = Verdict.model_validate_json(fixture.read_bytes())
         verdict = Verdict.model_validate({**sample.model_dump(), "case_id": directory.name})
     else:
-        verdict = run_uploaded_case(
+        if video.is_symlink() or not video.is_file():
+            raise PipelineError("The case must contain a regular video.mp4 file.")
+        verdict = run_submission(
             directory,
             inputs,
             review=review,
@@ -48,7 +51,8 @@ def run(
             progress=progress,
             model=model,
             client=client,
-        )
+            _run_video=run_uploaded_case,
+        ).verdict
     write_atomically(
         directory / "verdict.json", (verdict.model_dump_json(indent=2) + "\n").encode("utf-8")
     )

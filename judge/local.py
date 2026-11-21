@@ -4,11 +4,13 @@ from pathlib import Path
 from time import monotonic
 
 from api.app.contracts import Check, ClaimType, Step, Verdict
+from judge.feedback import VideoStatus, build_complaint_feedback
 from judge.integrity import assess_integrity
 from judge.matching import CHECK_NAMES
 from judge.pipeline import write_atomically
 from judge.privacy import sanitize_frames
 from judge.sampling import NoSharpFrames, sample_frames
+from judge.submission import write_video_submission
 from judge.verdict import decide_verdict
 
 
@@ -36,5 +38,16 @@ def run_local(directory: Path, claim_type: ClaimType, order_id: str) -> Verdict:
         integrity=integrity,
     )
     verdict.steps = steps
+    status: VideoStatus = "analyzed" if frames else "no_usable_frames"
+    feedback = build_complaint_feedback(
+        verdict,
+        claim_type,
+        video_status=status,
+        purchase_verified=bool(order_id),
+        comparison_pending=True,
+    )
+    if not order_id:
+        verdict.reason = feedback.reason
+    write_video_submission(directory, verdict, status, feedback)
     write_atomically(directory / "verdict.json", verdict.model_dump_json().encode())
     return verdict

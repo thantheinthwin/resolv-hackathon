@@ -34,7 +34,9 @@ SYSTEM_PROMPT = (
     "that fit the selected claim type. Confidence means how confidently the description matches "
     "the selected claim type, independent of who is right or whether the allegation is true. "
     "For each allegation, select only catalogued finding IDs whose text directly addresses it, "
-    "whether supporting or contradicting it. A color finding cannot establish a size allegation. "
+    "whether supporting or contradicting it. Also report supporting_finding_ids as the subset "
+    "whose text directly supports the allegation. Exclude contradictory or neutral findings "
+    "from that subset. A color finding cannot establish a size allegation. "
     "Use an empty list when the supplied findings do not address an allegation. "
     "Do not invent observations, repeat personal information, or give a verdict."
 )
@@ -50,6 +52,9 @@ class AllegationSelection(BaseModel):
 
     kind: AllegationKind
     finding_ids: list[int] = Field(max_length=MAX_FINDINGS_PER_CHECK)
+    supporting_finding_ids: list[int] = Field(
+        default_factory=list, max_length=MAX_FINDINGS_PER_CHECK
+    )
 
 
 class ComplaintSelection(BaseModel):
@@ -76,6 +81,7 @@ class GroundedAllegation(BaseModel):
     kind: AllegationKind
     evidence: list[FindingReference]
     candidates: list[FindingReference]
+    supporting_evidence: list[FindingReference] = Field(default_factory=list)
 
 
 class ComplaintAssessment(BaseModel):
@@ -96,20 +102,30 @@ def _resolve(
         if not matching:
             continue
         ids = {finding_id for item in matching for finding_id in item.finding_ids}
-        times = dict.fromkeys(
-            finding.t
-            for index, (check, finding) in enumerate(catalogue)
-            if check == CHECKS[kind] and index in ids
-        )
+        supporting_ids = {
+            finding_id for item in matching for finding_id in item.supporting_finding_ids
+        }
         check_name = CHECKS[kind]
-        references = [FindingReference(check=check_name, t=t) for t in times]
+        references = {
+            index: FindingReference(check=check, t=finding.t)
+            for index, (check, finding) in enumerate(catalogue)
+            if check == check_name and index in ids
+        }
+        times = dict.fromkeys(ref.t for ref in references.values())
+        supporting_times = dict.fromkeys(
+            ref.t for index, ref in references.items() if index in supporting_ids
+        )
+        direct = [FindingReference(check=check_name, t=t) for t in times]
         # The combined variant check has no typed colour-versus-size finding metadata.
         variant = check_name == "variant"
         allegations.append(
             GroundedAllegation(
                 kind=kind,
-                evidence=[] if variant else references,
-                candidates=references if variant else [],
+                evidence=[] if variant else direct,
+                candidates=direct if variant else [],
+                supporting_evidence=[]
+                if variant
+                else [FindingReference(check=check_name, t=t) for t in supporting_times],
             )
         )
     return ComplaintAssessment(

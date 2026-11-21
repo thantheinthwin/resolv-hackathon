@@ -18,7 +18,8 @@ from judge.matching import ReviewedListingPhoto
 from judge.opening_review import OpeningReviewRequest, OpeningReviewSelection
 from judge.pipeline import PipelineError
 from judge.privacy import RedactionRegion
-from judge.sampling import SampledFrame
+from judge.sampling import NoSharpFrames, SampledFrame
+from judge.submission import SubmissionResult, run_submission
 
 DESCRIPTION = "เห็นรอยแตกเมื่อเปิดกล่อง private-complaint"
 FINDING_TIME = 4.1254
@@ -64,7 +65,13 @@ class FakeResponses:
         elif schema == "ComplaintSelection":
             result = {
                 "confidence": 0.96,
-                "allegations": [{"kind": "damage", "finding_ids": [int(self.extra_finding)]}],
+                "allegations": [
+                    {
+                        "kind": "damage",
+                        "finding_ids": [int(self.extra_finding)],
+                        "supporting_finding_ids": [int(self.extra_finding)],
+                    }
+                ],
             }
         else:
             assert schema == "ReasonSelection"
@@ -137,6 +144,9 @@ def test_run_writes_grounded_assets_and_shared_verdict(
 
     assert (verdict.verdict, verdict.display, verdict.confidence) == ("buyer_right", "clear", 0.96)
     assert Verdict.model_validate_json((folder / "verdict.json").read_bytes()) == verdict
+    saved = SubmissionResult.model_validate_json((folder / "submission.json").read_bytes())
+    assert saved.verdict == verdict and saved.feedback is not None
+    assert saved.feedback.result == "complaint_supported"
     assert len(verdict.evidence) == 1
     evidence = verdict.evidence[0]
     assert evidence.t == FINDING_TIME
@@ -171,6 +181,23 @@ def test_run_writes_grounded_assets_and_shared_verdict(
     assert [event.step for event in progress if event.event == "finished"] == [
         step.name for step in verdict.steps
     ]
+
+
+def test_submission_publishes_one_grounded_complaint_result(
+    case: tuple[Path, JudgeInputs, FakeResponses],
+) -> None:
+    folder, inputs, responses = case
+    result = run_submission(
+        folder,
+        inputs,
+        review=lambda request: True,
+        model="test-model",
+        client=SimpleNamespace(responses=responses),
+    )
+    assert result.feedback is not None
+    assert result.feedback.result == "complaint_supported"
+    assert str(FINDING_TIME) in result.feedback.reason.en
+    assert SubmissionResult.model_validate_json((folder / "submission.json").read_bytes()) == result
 
 
 def test_pending_review_never_releases_images_or_writes_verdict(
@@ -359,3 +386,202 @@ def test_uploaded_video_without_inputs_does_not_fall_back_to_sample(
     with pytest.raises(PipelineError, match="JudgeInputs"):
         run(folder)
     assert not (folder / "verdict.json").exists()
+
+
+def test_reviewed_video_without_sharp_frames_publishes_evidence_request(
+    case: tuple[Path, JudgeInputs, FakeResponses], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    folder, inputs, responses = case
+
+    def no_sharp_frames(_path: Path) -> list[SampledFrame]:
+        raise NoSharpFrames("No usable frames.")
+
+    monkeypatch.setattr("judge.pipeline.sample_frames", no_sharp_frames)
+    result = run(folder, inputs.model_copy(update={"description": ""}))
+
+    saved = SubmissionResult.model_validate_json((folder / "submission.json").read_bytes())
+    assert saved.verdict == result and saved.feedback is not None
+    assert saved.feedback.result == "needs_more_evidence"
+    assert "usable video" in saved.feedback.reason.en
+    assert responses.calls == []
+
+
+@pytest.mark.parametrize("usable_video", [True, False])
+@pytest.mark.parametrize("complaint", ["empty", "approved", "pending"])
+def test_video_entry_points_publish_equivalent_submission(
+    case: tuple[Path, JudgeInputs, FakeResponses],
+    monkeypatch: pytest.MonkeyPatch,
+    usable_video: bool,
+    complaint: str,
+) -> None:
+    folder, inputs, _ = case
+    other = folder.parent / "submission" / folder.name
+    other.mkdir(parents=True)
+    (other / "video.mp4").write_bytes((folder / "video.mp4").read_bytes())
+    monkeypatch.setattr("judge.pipeline.perf_counter", lambda: 0)
+    if not usable_video:
+
+        def no_frames(_path: Path) -> list[SampledFrame]:
+            raise NoSharpFrames("No usable frames.")
+
+        monkeypatch.setattr("judge.pipeline.sample_frames", no_frames)
+    if complaint == "empty":
+        inputs = inputs.model_copy(update={"description": ""})
+
+    saved_results = []
+    requests = []
+    outputs = []
+    progress_events = []
+    for entrypoint, directory in ((run, folder), (run_submission, other)):
+        responses = FakeResponses()
+        reviews: list[ReviewRequest] = []
+        progress: list[ProgressEvent] = []
+
+        def review(request: ReviewRequest) -> bool:
+            reviews.append(request)
+            return request.stage != "complaint" or complaint == "approved"
+
+        result = entrypoint(
+            directory,
+            inputs,
+            review=review,
+            progress=progress.append,
+            model="test-model",
+            client=SimpleNamespace(responses=responses),
+        )
+        saved = SubmissionResult.model_validate_json((directory / "submission.json").read_bytes())
+        assert (saved.verdict if isinstance(result, Verdict) else saved) == result
+        assert saved.video_status == ("analyzed" if usable_video else "no_usable_frames")
+        assert saved.feedback is not None
+        if not usable_video:
+            assert [step.name for step in saved.verdict.steps] == ["intake", "sampling"]
+            assert [schema for schema, _ in responses.calls] == (
+                ["ComplaintSelection"] if complaint == "approved" else []
+            )
+        if complaint == "pending":
+            assert saved.feedback.result == "needs_human_check"
+            assert "privacy review" in saved.feedback.reason.en
+        saved_results.append(saved)
+        requests.append([(request.stage, request.fingerprint) for request in reviews])
+        outputs.append(sorted(responses.calls))
+        progress_events.append(progress)
+
+    assert saved_results[0] == saved_results[1]
+    assert requests[0] == requests[1]
+    assert outputs[0] == outputs[1]
+    assert progress_events[0] == progress_events[1]
+    assert (
+        Verdict.model_validate_json((folder / "verdict.json").read_bytes())
+        == saved_results[0].verdict
+    )
+
+
+def test_run_requires_video_even_with_a_written_complaint(
+    case: tuple[Path, JudgeInputs, FakeResponses],
+) -> None:
+    folder, inputs, _ = case
+
+    with pytest.raises(PipelineError, match="regular video.mp4 file"):
+        run(folder.parent / "no-video", inputs)
+
+
+@pytest.mark.parametrize("shows_size", [False, True])
+def test_written_variant_complaint_needs_a_directly_verified_attribute(
+    case: tuple[Path, JudgeInputs, FakeResponses], shows_size: bool
+) -> None:
+    folder, inputs, _ = case
+
+    class VariantMismatchResponses(FakeResponses):
+        def parse(self, **kwargs: object) -> SimpleNamespace:
+            response = super().parse(**kwargs)
+            schema = kwargs["text_format"].__name__
+            if schema == "MatchResponse":
+                payload = kwargs["input"][1]["content"][0]["text"]
+                if json.loads(payload.splitlines()[0])["check"] == "variant":
+                    response.output_parsed = {
+                        "status": "flag",
+                        "confidence": 0.98,
+                        "findings": [
+                            {
+                                "t": FINDING_TIME,
+                                "note_en": "The tag reads S, but the order specifies M."
+                                if shows_size
+                                else "The shirt is red.",
+                                "note_th": "ป้ายระบุขนาด S แต่สั่งขนาด M" if shows_size else "เสื้อสีแดง",
+                            }
+                        ],
+                        "note_en": "Size differs from the order."
+                        if shows_size
+                        else "Color differs from the order.",
+                    }
+            if schema == "ComplaintSelection":
+                response.output_parsed = {
+                    "confidence": 0.98,
+                    "allegations": [
+                        {
+                            "kind": "size",
+                            "finding_ids": [0] if shows_size else [],
+                            "supporting_finding_ids": [0] if shows_size else [],
+                        }
+                    ],
+                }
+            return response
+
+    result = run_submission(
+        folder,
+        inputs.model_copy(update={"claim_type": "wrong_item", "description": "Wrong size"}),
+        review=lambda _: True,
+        model="test-model",
+        client=SimpleNamespace(responses=VariantMismatchResponses()),
+    )
+
+    assert result.verdict.verdict == "buyer_right"
+    assert result.feedback is not None
+    assert result.feedback.result == ("needs_human_check" if shows_size else "needs_more_evidence")
+    if shows_size:
+        assert "confirm" in result.feedback.reason.en
+    assert result.verdict.evidence[0].t == FINDING_TIME
+
+
+def test_a_contradicting_frame_cannot_support_a_written_complaint(
+    case: tuple[Path, JudgeInputs, FakeResponses],
+) -> None:
+    folder, inputs, _ = case
+
+    class ContradictingResponses(FakeResponses):
+        def parse(self, **kwargs: object) -> SimpleNamespace:
+            response = super().parse(**kwargs)
+            schema = kwargs["text_format"].__name__
+            if schema == "MatchResponse":
+                text = kwargs["input"][1]["content"][0]["text"]
+                if json.loads(text.splitlines()[0])["check"] == "damage":
+                    response.output_parsed["findings"] = [
+                        {"t": 3.1254, "note_en": "The screen is intact.", "note_th": "หน้าจอไม่แตก"},
+                        {
+                            "t": FINDING_TIME,
+                            "note_en": "The back is dented.",
+                            "note_th": "ด้านหลังบุบ",
+                        },
+                    ]
+            if schema == "ComplaintSelection":
+                response.output_parsed["allegations"] = [
+                    {
+                        "kind": "damage",
+                        "finding_ids": [0],
+                        "supporting_finding_ids": [],
+                    }
+                ]
+            return response
+
+    result = run_submission(
+        folder,
+        inputs.model_copy(update={"description": "My screen is cracked."}),
+        review=lambda _: True,
+        model="test-model",
+        client=SimpleNamespace(responses=ContradictingResponses()),
+    )
+
+    assert result.verdict.verdict == "buyer_right"
+    assert result.verdict.evidence[0].t == 3.1254
+    assert result.feedback is not None
+    assert result.feedback.result == "needs_more_evidence"

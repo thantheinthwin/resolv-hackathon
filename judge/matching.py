@@ -172,15 +172,6 @@ def _ground_response(response: MatchResponse, timestamps: Sequence[float]) -> Ch
     )
 
 
-def _unclear() -> Check:
-    return Check(
-        status="unclear",
-        confidence=0.0,
-        findings=[],
-        note_en="This check could not be completed reliably.",
-    )
-
-
 def _compare_one(
     check_name: str,
     *,
@@ -190,7 +181,7 @@ def _compare_one(
     key_seed: bytes,
     timestamps: Sequence[float],
     cache_dir: Path | None,
-) -> Check:
+) -> tuple[Check, bool]:
     request_data = [*content]
     request_data[0] = {
         "type": "input_text",
@@ -200,7 +191,7 @@ def _compare_one(
     if cache_dir is not None:
         existing = _cached_check(cache_dir, cache_key, timestamps)
         if existing is not None:
-            return existing
+            return existing, False
 
     messages: list[dict[str, object]] = [
         {"role": "system", "content": SYSTEM_PROMPT},
@@ -221,10 +212,16 @@ def _compare_one(
             result = _ground_response(valid, timestamps)
             if cache_dir is not None:
                 _write_cache(cache_dir, cache_key, result)
-            return result
+            return result, False
         except Exception:
             continue
-    return _unclear()
+    return Check(
+        status="unclear",
+        confidence=0.0,
+        findings=[],
+        note_en="This check could not be completed reliably.",
+        note_th="ไม่สามารถดำเนินการตรวจสอบนี้ได้อย่างน่าเชื่อถือ",
+    ), True
 
 
 def _listing_context(listing: Listing, order: Order) -> dict[str, object]:
@@ -250,11 +247,13 @@ def compare_listing(
     model: str | None = None,
     client: VisionClient | None = None,
     cache_dir: Path | None = None,
+    failed_checks: set[str] | None = None,
 ) -> dict[str, Check]:
     """Compare observation to order/listing with up to five independent model calls.
 
     The human privacy gate covers the video frames, listing photos AND listing
     text. Do not pass buyer_name or the buyer complaint to this function.
+    Record checks whose model attempts failed in failed_checks when supplied.
     """
     if not privacy_approved:
         raise MatchError("Explicit privacy approval is required for all model inputs.")
@@ -325,7 +324,10 @@ def compare_listing(
             )
             for name in CHECK_NAMES
         }
-        return {name: futures[name].result() for name in CHECK_NAMES}
+        results = {name: futures[name].result() for name in CHECK_NAMES}
+    if failed_checks is not None:
+        failed_checks.update(name for name, (_, failed) in results.items() if failed)
+    return {name: check for name, (check, _) in results.items()}
 
 
 class Step5Result(BaseModel):

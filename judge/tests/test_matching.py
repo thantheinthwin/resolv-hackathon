@@ -87,6 +87,7 @@ def compare(
     frames: list[SanitizedFrame] | None = None,
     approved: bool = True,
     cache_dir: Path | None = None,
+    failed_checks: set[str] | None = None,
 ):
     return compare_listing(
         frames if frames is not None else [frame()],
@@ -98,6 +99,7 @@ def compare(
         model="mock-vision",
         client=client,
         cache_dir=cache_dir,
+        failed_checks=failed_checks,
     )
 
 
@@ -191,6 +193,23 @@ def test_two_bad_model_outputs_only_affect_one_check() -> None:
     checks = compare(FakeClient(outputs))
     assert checks["counterfeit"].status == "unclear"
     assert checks["listing"].status == "pass"
+
+
+def test_only_failed_retries_are_recorded_as_comparison_failures() -> None:
+    outputs = all_passes()
+    outputs["damage"] = [None, None]
+    outputs["variant"] = [
+        {
+            **answer("unclear", with_finding=False),
+            "note_en": "This check could not be completed reliably.",
+        }
+    ]
+    failures: set[str] = set()
+    checks = compare(FakeClient(outputs), failed_checks=failures)
+
+    assert checks["variant"].status == checks["damage"].status == "unclear"
+    assert checks["variant"].note_en == checks["damage"].note_en
+    assert failures == {"damage"}
 
 
 def test_exception_message_not_exposed() -> None:

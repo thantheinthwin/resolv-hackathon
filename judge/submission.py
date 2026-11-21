@@ -1,6 +1,7 @@
 """Analyze buyer text, photos and video through the applicable judge stages."""
 
 from base64 import b64encode
+from collections.abc import Callable
 from hashlib import sha256
 from pathlib import Path
 from typing import Annotated, Literal, Self
@@ -16,6 +17,7 @@ from judge.complaint import (
     assess_complaint,
 )
 from judge.config import get_secret
+from judge.feedback import ComplaintFeedback, FeedbackState, VideoStatus, build_complaint_feedback
 from judge.matching import (
     _cache_folder,
     _listing_context,
@@ -42,7 +44,6 @@ from judge.vision import MODEL_TIMEOUT_SECONDS, VisionClient, _client_from_envir
 
 MAX_BUYER_PHOTOS = 3
 STRICT = ConfigDict(extra="forbid", strict=True, frozen=True, hide_input_in_errors=True)
-VideoStatus = Literal["absent", "no_usable_frames", "analyzed"]
 _BUYER_PHOTO_INDEX_PATTERN = "|".join(str(index) for index in range(MAX_BUYER_PHOTOS))
 BuyerPhotoRef = Annotated[
     str, Field(pattern=rf"^buyer-photos/(?:{_BUYER_PHOTO_INDEX_PATTERN})-[0-9a-f]{{64}}\.jpg$")
@@ -110,12 +111,40 @@ class SubmissionResult(BaseModel):
     buyer_photos: list[BuyerPhotoRef] = Field(max_length=MAX_BUYER_PHOTOS)
     photo_findings: list[PhotoFinding]
     complaint: ComplaintAssessment | None
+    feedback: ComplaintFeedback | None = None
 
     @model_validator(mode="after")
     def validate_photo_references(self) -> Self:
         if any(finding.photo not in self.buyer_photos for finding in self.photo_findings):
             raise ValueError("Photo findings must refer to a JPEG in the buyer photo manifest.")
         return self
+
+
+def write_submission(directory: Path, result: SubmissionResult) -> None:
+    """Publish a validated submission artifact after its referenced assets exist."""
+    write_atomically(
+        directory / "submission.json", (result.model_dump_json(indent=2) + "\n").encode()
+    )
+
+
+def write_video_submission(
+    directory: Path,
+    verdict: Verdict,
+    video_status: VideoStatus,
+    feedback: ComplaintFeedback,
+) -> None:
+    """Publish a submission for a worker that did not compare buyer photos."""
+    write_submission(
+        directory,
+        SubmissionResult(
+            verdict=verdict,
+            video_status=video_status,
+            buyer_photos=[],
+            photo_findings=[],
+            complaint=None,
+            feedback=feedback,
+        ),
+    )
 
 
 def _photo_review(inputs: SubmissionInputs, buyer_photos: tuple[BuyerPhoto, ...]) -> ReviewRequest:
@@ -215,6 +244,34 @@ def _without_video(
     )
 
 
+def _assess_standalone_complaint(
+    inputs: SubmissionInputs,
+    *,
+    review: Review | None,
+    model: str | None,
+    client: VisionClient | None,
+    cache_dir: Path,
+) -> ComplaintAssessment | None:
+    """Classify written text separately when usable video evidence is unavailable."""
+    if not inputs.description.strip() or not _approved(
+        review,
+        ReviewRequest(
+            stage="complaint",
+            text=_json(_complaint_payload(inputs.claim_type, inputs.description, [])),
+        ),
+    ):
+        return None
+    return assess_complaint(
+        inputs.claim_type,
+        inputs.description,
+        {},
+        privacy_approved=True,
+        model=model,
+        client=client,
+        cache_dir=cache_dir,
+    )
+
+
 def run_submission(
     case_dir: Path,
     inputs: SubmissionInputs,
@@ -225,6 +282,7 @@ def run_submission(
     progress: Progress | None = None,
     model: str | None = None,
     client: VisionClient | None = None,
+    _run_video: Callable[..., Verdict] | None = None,
 ) -> SubmissionResult:
     """Assess supported evidence and atomically publish a private submission.json."""
     directory = case_dir.resolve()
@@ -245,9 +303,11 @@ def run_submission(
     verdict = None
     video_steps: list[Step] = []
     video_status: VideoStatus = "absent"
+    state = FeedbackState()
     if has_video:
+        run_video = run_uploaded_case if _run_video is None else _run_video
         try:
-            verdict = run_uploaded_case(
+            verdict = run_video(
                 directory,
                 inputs,
                 review=review,
@@ -256,6 +316,7 @@ def run_submission(
                 model=model,
                 client=client,
                 steps=video_steps,
+                feedback_state=state,
             )
             video_status = "analyzed"
         except NoSharpFrames:
@@ -282,27 +343,15 @@ def run_submission(
 
     complaint = None
     if verdict is None:
-        if has_text and _approved(
-            review,
-            ReviewRequest(
-                stage="complaint",
-                text=_json(_complaint_payload(inputs.claim_type, inputs.description, [])),
-            ),
-        ):
-            complaint = assess_complaint(
-                inputs.claim_type,
-                inputs.description,
-                {},
-                privacy_approved=True,
-                model=model,
-                client=client,
-                cache_dir=cache_dir,
-            )
+        complaint = _assess_standalone_complaint(
+            inputs, review=review, model=model, client=client, cache_dir=cache_dir
+        )
+        state.complaint_review_pending = has_text and complaint is None
         verdict = _without_video(
             directory.name,
             video_status,
             video_steps,
-            complaint_pending=has_text and complaint is None,
+            complaint_pending=state.complaint_review_pending,
         )
     result = SubmissionResult(
         verdict=verdict,
@@ -310,12 +359,16 @@ def run_submission(
         buyer_photos=list(reviewed_photos),
         photo_findings=photo_findings,
         complaint=complaint,
+        feedback=build_complaint_feedback(
+            verdict,
+            inputs.claim_type,
+            video_status=video_status,
+            state=state,
+        ),
     )
     for ref, jpeg in reviewed_photos.items():
         asset = directory / ref
         _cache_folder(asset.parent)
         write_atomically(asset, jpeg)
-    write_atomically(
-        directory / "submission.json", (result.model_dump_json(indent=2) + "\n").encode()
-    )
+    write_submission(directory, result)
     return result
