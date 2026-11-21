@@ -24,10 +24,8 @@ MIN_JUMP_SCORE = 0.05
 MIN_PHASH_DISTANCE = 20
 GROUNDING_TOLERANCE_SECONDS = 0.05
 OPENING_WINDOW_SECONDS = 10.0
-NO_CUT_PROOF = (
-    "No strong scene change in the sampled frames. "
-    "This does not prove the video is unedited."
-)
+NO_CUT_PROOF = "No strong scene change in the sampled frames. "
+NO_CUT_PROOF += "This does not prove the video is unedited."
 CheckStatus = Literal["pass", "flag", "unclear"]
 
 
@@ -81,9 +79,7 @@ class IntegrityReport(StrictModel):
 
     @property
     def requires_human_review(self) -> bool:
-        return bool(self.flags) or any(
-            check.status == "unclear" for check in self.checks.values()
-        )
+        return bool(self.flags) or any(check.status == "unclear" for check in self.checks.values())
 
 
 def _check_frames(frames: Sequence[SanitizedFrame]) -> None:
@@ -115,11 +111,8 @@ def _sharp(frame: SanitizedFrame) -> bool:
     gray = cv2.cvtColor(frame.image, cv2.COLOR_BGR2GRAY)
     height, width = gray.shape
     if width > 320:
-        gray = cv2.resize(
-            gray,
-            (320, max(1, round(height * 320 / width))),
-            interpolation=cv2.INTER_AREA,
-        )
+        scaled_height = max(1, round(height * 320 / width))
+        gray = cv2.resize(gray, (320, scaled_height), interpolation=cv2.INTER_AREA)
     return float(cv2.Laplacian(gray, cv2.CV_64F).var()) >= MIN_SHARPNESS
 
 
@@ -222,7 +215,9 @@ def _opening_checks(
     observation: OpeningObservation | None,
 ) -> tuple[dict[str, IntegrityCheck], list[IntegrityFlag]]:
     unknown = IntegrityCheck(
-        status="unclear", confidence=0.0, note_en="No grounded opening observation available."
+        status="unclear",
+        confidence=0.0,
+        note_en="No grounded opening observation available.",
     )
     if observation is None or not any(
         frame.timestamp_seconds <= OPENING_WINDOW_SECONDS
@@ -241,19 +236,22 @@ def _opening_checks(
     flags: list[IntegrityFlag] = []
     if observation.seal_confidence < 0.5 or observation.seal_state == "unclear":
         seal = IntegrityCheck(
-            status="unclear", confidence=0.0, note_en="Parcel seal cannot be assessed."
+            status="unclear",
+            confidence=0.0,
+            note_en="Parcel seal cannot be assessed.",
         )
     elif observation.seal_state == "opened":
         note = "Parcel seal appears opened before the filmed unboxing."
         flags.append(IntegrityFlag(type="seal_opened", t=timestamp, note=note))
+        finding = IntegrityFinding(
+            t=timestamp,
+            note_en=note,
+            note_th="ซีลพัสดุดูเหมือนถูกเปิดก่อนเริ่มแกะกล่อง",
+        )
         seal = IntegrityCheck(
             status="flag",
             confidence=observation.seal_confidence,
-            findings=[IntegrityFinding(
-                t=timestamp,
-                note_en=note,
-                note_th="ซีลพัสดุดูเหมือนถูกเปิดก่อนเริ่มแกะกล่อง",
-            )],
+            findings=[finding],
         )
     else:
         seal = IntegrityCheck(
@@ -266,19 +264,22 @@ def _opening_checks(
     observed = _normalize_id(observation.observed_order_id or "")
     if len(expected) < 5 or len(observed) < 5 or observation.label_confidence < 0.5:
         label = IntegrityCheck(
-            status="unclear", confidence=0.0, note_en="Order label is not readable or reliable."
+            status="unclear",
+            confidence=0.0,
+            note_en="Order label is not readable or reliable.",
         )
     elif not _within_one_edit(expected, observed):
         note = "Visible order code differs from the expected order code."
         flags.append(IntegrityFlag(type="label_mismatch", t=timestamp, note=note))
+        finding = IntegrityFinding(
+            t=timestamp,
+            note_en=note,
+            note_th="รหัสคำสั่งซื้อบนพัสดุไม่ตรงกับข้อมูลการสั่งซื้อ",
+        )
         label = IntegrityCheck(
             status="flag",
             confidence=observation.label_confidence,
-            findings=[IntegrityFinding(
-                t=timestamp,
-                note_en=note,
-                note_th="รหัสคำสั่งซื้อบนพัสดุไม่ตรงกับข้อมูลการสั่งซื้อ",
-            )],
+            findings=[finding],
         )
     else:
         label = IntegrityCheck(
@@ -303,7 +304,5 @@ def assess_integrity(
     _check_frames(frames)
     continuity, cut_flags = _continuity(frames)
     opening_checks, opening_flags = _opening_checks(frames, expected_order_id, observation)
-    return IntegrityReport(
-        flags=cut_flags + opening_flags,
-        checks={"continuity": continuity, **opening_checks},
-    )
+    checks = {"continuity": continuity, **opening_checks}
+    return IntegrityReport(flags=cut_flags + opening_flags, checks=checks)

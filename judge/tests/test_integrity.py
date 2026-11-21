@@ -168,18 +168,14 @@ def test_low_confidence_opening_remains_unclear() -> None:
     weak = opening(seal="opened", code="UJ-98765").model_copy(
         update={"seal_confidence": 0.3, "label_confidence": 0.3}
     )
-    report = assess_integrity(
-        steady_frames(), expected_order_id="UJ-48213", observation=weak
-    )
+    report = assess_integrity(steady_frames(), expected_order_id="UJ-48213", observation=weak)
     assert report.checks["seal"].status == "unclear"
     assert report.checks["label"].status == "unclear"
     assert not report.flags
 
 
 def test_invalid_empty_order_id_cannot_be_claimed_a_match() -> None:
-    report = assess_integrity(
-        steady_frames(), expected_order_id="", observation=opening(code="A")
-    )
+    report = assess_integrity(steady_frames(), expected_order_id="", observation=opening(code="A"))
     assert report.checks["label"].status == "unclear"
 
 
@@ -206,18 +202,20 @@ def test_report_validates_against_shared_verdict_contract() -> None:
         expected_order_id="UJ-48213",
         observation=opening(seal="opened", code="UJ-98765"),
     )
-    verdict = Verdict.model_validate({
-        "case_id": "UJ-48213",
-        "verdict": "needs_human",
-        "display": "unsure",
-        "leaning": "none",
-        "confidence": 0.0,
-        "flags": [item.model_dump() for item in report.flags],
-        "checks": {key: item.model_dump() for key, item in report.checks.items()},
-        "evidence": [],
-        "reason": {"en": "Needs human review.", "th": "ต้องให้เจ้าหน้าที่ตรวจสอบ"},
-        "steps": [],
-    })
+    verdict = Verdict.model_validate(
+        {
+            "case_id": "UJ-48213",
+            "verdict": "needs_human",
+            "display": "unsure",
+            "leaning": "none",
+            "confidence": 0.0,
+            "flags": [item.model_dump() for item in report.flags],
+            "checks": {key: item.model_dump() for key, item in report.checks.items()},
+            "evidence": [],
+            "reason": {"en": "Needs human review.", "th": "ต้องให้เจ้าหน้าที่ตรวจสอบ"},
+            "steps": [],
+        }
+    )
     assert verdict.display == "unsure"
     assert len(verdict.flags) == 2
     assert "label" in verdict.checks
