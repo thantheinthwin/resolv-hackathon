@@ -9,11 +9,11 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "check": "tsc --noEmit",
+    "check": "npm run typecheck",
     "gen:api": "openapi-typescript \"${OPENAPI_URL:-http://127.0.0.1:8000/openapi.json}\" -o src/api/types.ts",
     "lint": "eslint .",
     "format:check": "prettier --check .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "next typegen && tsc --noEmit"
   },
   "dependencies": {
     "@tailwindcss/postcss": "^4.3.5",
