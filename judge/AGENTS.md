@@ -28,8 +28,9 @@ Follow [service contracts](../docs/CONTRACTS.md) for the return value, saved ver
 ### Connecting the real worker
 
 The integration point is `judge.run(case_dir, inputs, review=..., progress=...)`.
-Implement Thant's adapter with the existing `Judge.run(case_dir)` shape so the
-background job and its return-versus-disk validation can stay in place.
+The API's `CaseJudge.prepare` uses it during trusted host review. The
+background job keeps its existing `Judge.run(case_dir)` shape and reuses
+the matching prepared verdict.
 
 1. Resolve the stored case, order, and listing on the server. Build
    `judge.JudgeInputs` with the case's claim type and description, the matching
@@ -87,20 +88,25 @@ fixture path is for case directories without an uploaded `video.mp4`.
 
 ### Local opening review
 
-On the trusted host, add the opening prompt to the operator's pre-upload
-review command. For example, the API adapter can use:
+Enable the prompt in the operator's pre-upload command,
+`python -m api.review_video CASE_ID VIDEO`. Have `CaseJudge.prepare` accept
+an optional `opening_review` callback and pass it to `judge.run`:
 
 ```python
 import judge
-from judge.opening_review import prompt_opening_review
 
 verdict = judge.run(
     case_dir,
     inputs,
-    opening_review=prompt_opening_review,
+    opening_review=opening_review,
     review=review,
 )
 ```
+
+In `api.review_video.main`, supply `prompt_opening_review` when calling
+`CaseJudge.prepare`. Keep the prompt out of the background upload job.
+Use a fresh case for the first run because the adapter reuses any matching
+verdict that was already prepared.
 
 Call this from the operator's local session. The default preview uses a
 locally installed `ffplay` window and streams the sampled image through a pipe.
