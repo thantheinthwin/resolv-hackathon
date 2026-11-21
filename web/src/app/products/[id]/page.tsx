@@ -13,7 +13,7 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
     <main className={styles.store}>
       <nav aria-label="Product navigation">
         <a className={styles.back} href="/orders">
-          ‹ Back to report a problem
+          ‹ Browse other items
         </a>
       </nav>
       <article className={styles.detail}>
