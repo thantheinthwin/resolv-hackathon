@@ -17,7 +17,13 @@ from judge.intake import IntakeError
 from judge.matching import ReviewedListingPhoto
 from judge.pipeline import PipelineError
 from judge.privacy import RedactionRegion
-from judge.submission import BuyerPhoto, SubmissionInputs, SubmissionResult, run_submission
+from judge.submission import (
+    MAX_BUYER_PHOTOS,
+    BuyerPhoto,
+    SubmissionInputs,
+    SubmissionResult,
+    run_submission,
+)
 
 DESCRIPTION = "พบรอยแตกบนเครื่อง private-complaint"
 
@@ -141,6 +147,44 @@ def test_accepts_each_evidence_combination(
         SubmissionResult.model_validate_json((tmp_path / "submission.json").read_bytes()) == result
     )
     assert DESCRIPTION not in (tmp_path / "submission.json").read_text()
+
+
+def test_last_allowed_photo_finding_round_trips(tmp_path: Path) -> None:
+    last_index = MAX_BUYER_PHOTOS - 1
+    responses = Responses({"findings": [_finding(last_index)]})
+    result = run_submission(
+        tmp_path,
+        _inputs(media=True),
+        buyer_photos=_photos() * MAX_BUYER_PHOTOS,
+        review=_allow,
+        model="test-model",
+        client=SimpleNamespace(responses=responses),
+    )
+
+    assert len(result.buyer_photos) == MAX_BUYER_PHOTOS
+    [finding] = result.photo_findings
+    assert finding.photo == result.buyer_photos[last_index]
+    assert finding.photo.startswith(f"buyer-photos/{last_index}-")
+    assert (tmp_path / finding.photo).is_file()
+    assert (
+        SubmissionResult.model_validate_json((tmp_path / "submission.json").read_bytes()) == result
+    )
+
+
+def test_extra_photo_is_rejected_before_review_or_model_call(tmp_path: Path) -> None:
+    responses = Responses()
+    with pytest.raises(PipelineError, match=f"at most {MAX_BUYER_PHOTOS} buyer photos"):
+        run_submission(
+            tmp_path,
+            _inputs(written=True, media=True),
+            buyer_photos=_photos() * (MAX_BUYER_PHOTOS + 1),
+            review=lambda _: pytest.fail("Over-limit submissions must not request approval."),
+            model="test-model",
+            client=SimpleNamespace(responses=responses),
+        )
+
+    assert responses.calls == []
+    assert not (tmp_path / "submission.json").exists()
 
 
 def test_empty_submission_is_invalid(tmp_path: Path) -> None:

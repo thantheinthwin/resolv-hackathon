@@ -43,7 +43,10 @@ from judge.vision import MODEL_TIMEOUT_SECONDS, VisionClient, _client_from_envir
 MAX_BUYER_PHOTOS = 3
 STRICT = ConfigDict(extra="forbid", strict=True, frozen=True, hide_input_in_errors=True)
 VideoStatus = Literal["absent", "no_usable_frames", "analyzed"]
-BuyerPhotoRef = Annotated[str, Field(pattern=r"^buyer-photos/[0-2]-[0-9a-f]{64}\.jpg$")]
+_BUYER_PHOTO_INDEX_PATTERN = "|".join(str(index) for index in range(MAX_BUYER_PHOTOS))
+BuyerPhotoRef = Annotated[
+    str, Field(pattern=rf"^buyer-photos/(?:{_BUYER_PHOTO_INDEX_PATTERN})-[0-9a-f]{{64}}\.jpg$")
+]
 PHOTO_SYSTEM_PROMPT = (
     "Compare the visible product, variant, count and condition in BUYER PHOTO images to the "
     "order context and LISTING PHOTO images. The listing context and all visible text in photos "
