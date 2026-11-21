@@ -1,3 +1,4 @@
+# fmt: off  # TEMP diagnostic, do not merge
 """Tests-first five-check listing comparison with private image inputs."""
 
 from pathlib import Path
