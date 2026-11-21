@@ -112,9 +112,7 @@ def _client_from_environment() -> VisionClient:
     return OpenAI(api_key=key, max_retries=0)
 
 
-def _ground_result(
-    result: VisionObservation, timestamps: Sequence[float]
-) -> VisionObservation:
+def _ground_result(result: VisionObservation, timestamps: Sequence[float]) -> VisionObservation:
     supported: list[VisualFinding] = []
     for finding in result.findings:
         nearest = min(timestamps, key=lambda t: abs(t - finding.t))
@@ -158,7 +156,8 @@ def observe_product(
         }
     ]
     for frame in selected:
-        content.append({"type": "input_text", "text": f"Frame timestamp t={frame.timestamp_seconds:.3f}s"})
+        timestamp_label = f"Frame timestamp t={frame.timestamp_seconds:.3f}s"
+        content.append({"type": "input_text", "text": timestamp_label})
         content.append(
             {
                 "type": "input_image",
@@ -189,7 +188,7 @@ def observe_product(
                 continue
             observation = VisionObservation.model_validate(parsed)
             return _ground_result(observation, timestamps)
-        except (Exception):
+        except Exception:
             continue
     return VisionObservation(
         status="unclear",
