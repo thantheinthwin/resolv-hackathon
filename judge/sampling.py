@@ -4,7 +4,6 @@ These images are UNSANITIZED. Never persist or transmit them before face/PII
 redaction succeeds. This module intentionally performs no external requests.
 """
 
-import json
 import math
 import subprocess
 from pathlib import Path
@@ -12,6 +11,8 @@ from pathlib import Path
 import cv2
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field
+
+from judge.ffprobe import probe_video_metadata
 
 SAMPLE_INTERVAL_SECONDS = 0.5
 MIN_BLUR_VARIANCE = 60.0
@@ -69,31 +70,19 @@ def _resize_for_output(frame: np.ndarray) -> np.ndarray:
 def _presentation_start_offset(video: Path) -> float:
     """Translate the decoder's stream-relative time to the playback timeline."""
     try:
-        probe = subprocess.run(
-            [
-                "ffprobe",
-                "-v",
-                "error",
-                "-protocol_whitelist",
-                "file",
-                "-select_streams",
-                "v:0",
-                "-show_entries",
-                "stream=start_time:format=start_time",
-                "-of",
-                "json",
-                "-i",
-                str(video.resolve()),
-            ],
-            capture_output=True,
-            text=True,
-            timeout=15,
-            check=True,
-        )
-        metadata = json.loads(probe.stdout)
+        metadata = probe_video_metadata(video, "stream=start_time:format=start_time")
         stream_start = float(metadata["streams"][0].get("start_time", 0))
         playback_start = float(metadata["format"].get("start_time", 0))
-    except (OSError, subprocess.SubprocessError, TypeError, ValueError, KeyError, IndexError):
+    except (
+        OSError,
+        subprocess.SubprocessError,
+        AttributeError,
+        TypeError,
+        ValueError,
+        KeyError,
+        IndexError,
+        OverflowError,
+    ):
         raise SamplingError("Video playback timeline could not be read.") from None
     if not math.isfinite(stream_start) or not math.isfinite(playback_start):
         raise SamplingError("Video has an invalid playback timeline.")
