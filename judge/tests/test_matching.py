@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+from api.app.contracts import Check
 from api.app.sample import LISTING, ORDER
 from judge.matching import (
     CHECK_NAMES,
@@ -222,6 +223,25 @@ def test_corrupt_cache_is_ignored(tmp_path: Path) -> None:
     client.responses.outputs = {name: [answer()] for name in CHECK_NAMES}
     compare(client, cache_dir=directory)
     assert len(client.responses.calls) == 6
+
+
+@pytest.mark.parametrize(("t", "with_finding"), [(300.0, True), (2.03, True), (2.0, False)])
+def test_cached_flags_require_exact_sent_timestamps(
+    tmp_path: Path, t: float, with_finding: bool
+) -> None:
+    directory = tmp_path / "cache"
+    responses = all_passes()
+    responses["damage"] = [answer("flag")]
+    compare(FakeClient(responses), cache_dir=directory)
+    entry = next(path for path in directory.glob("*.json") if '"status":"flag"' in path.read_text())
+    bad_flag = answer("flag", t, with_finding=with_finding)
+    entry.write_text(Check.model_validate(bad_flag).model_dump_json())
+
+    client = FakeClient({"damage": [answer("unclear", with_finding=False)]})
+    second = compare(client, cache_dir=directory)
+    assert len(client.responses.calls) == 1
+    assert second["damage"].status == "unclear"
+    assert second["damage"].findings == []
 
 
 def test_cache_symlink_rejected(tmp_path: Path) -> None:
