@@ -51,7 +51,12 @@ async function handle(req: Request, ctx: { params: Promise<{ path: string[] }> }
       signal: req.signal,
     });
     const out = new Headers();
-    for (const key of ["content-type", "content-range", "accept-ranges"]) {
+    for (const key of [
+      "content-type",
+      "content-range",
+      "accept-ranges",
+      "x-content-type-options",
+    ]) {
       const value = upstream.headers.get(key);
       if (value) out.set(key, value);
     }

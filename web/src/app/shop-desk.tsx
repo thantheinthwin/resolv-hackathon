@@ -64,6 +64,12 @@ function caseCanOpen(item: InboxCase) {
   return item.status === "ready" || item.status === "decided";
 }
 
+const verdictLabels = {
+  buyer_right: "Buyer is right",
+  seller_right: "Seller is right",
+  needs_human: "Unsure: check the video",
+} as const;
+
 function CaseRows({
   items,
   label,
@@ -110,6 +116,16 @@ function CaseRows({
               >
                 {caseStatus(item)}
               </Badge>
+            )}
+            {!product && item.verdict && item.display && (
+              <div className="queue-verdict">
+                <strong>{verdictLabels[item.verdict]}</strong>
+                <small>
+                  {item.display === "clear" ? "Clear" : "Unsure"}
+                  {item.confidence != null &&
+                    " · Model score " + Math.round(item.confidence * 100) + "%"}
+                </small>
+              </div>
             )}
           </div>
           {caseCanOpen(item) && (

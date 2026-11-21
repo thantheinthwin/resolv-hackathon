@@ -1,7 +1,8 @@
 # Unboxing Judge web desk
 
 Run `make setup` at the repository root. For the integrated API, set the same
-server-only `DEMO_PASSCODE` for Next and FastAPI, then run `make dev`.
+`DEMO_PASSCODE` for Next and FastAPI, then run `make dev`. Sign in to the
+integrated demo as `demo` with that passcode. Use HTTPS for shared deployments.
 `API_BASE_URL` overrides the default FastAPI origin on port 8000.
 `npm run gen:api` regenerates the shared TypeScript types from OpenAPI.
 
@@ -9,7 +10,8 @@ For a sample walkthrough, use Node 22.13 or later, leave the API origin and
 passcode unset, and run `npm run dev` here. The desk stores sample cases under
 `data/web-sample`. It calls the repository's Python 3.12 environment with
 FFmpeg, ffprobe and the OpenCV dependency installed by the shared setup.
-The sample judge returns an unassessed verdict.
+The sample judge returns an unassessed verdict. Sample mode uses a shared
+demo identity and is intended for local rehearsal with synthetic evidence.
 
 For phone upload, open the desk on the laptop's LAN address and connect the
 phone to the same network. NEXT_PUBLIC_WEB_ORIGIN can specify a different
@@ -50,9 +52,10 @@ REHEARSAL_URL to its localhost URL. Run these commands in order:
    shared claim links, catalogue search, draft replacement, original video
    playback, and the product-scoped case sidebar at desktop and phone widths.
 
-Set `INTEGRATED_REHEARSAL_URL` to a web instance backed by an isolated FastAPI
-store to also verify that draft-only deletion preserves a video after a phone
-upload. Physical phone and real-judge verification remain team checkpoints.
+Set `INTEGRATED_REHEARSAL_URL` and `INTEGRATED_REHEARSAL_PASSCODE` for a web instance
+backed by an isolated FastAPI store to verify browser authentication, token-only
+phone upload, and draft-only deletion through the proxy. Physical phone and
+real-judge verification remain team checkpoints.
 
 On the rebased branch, `make check` passed all 232 Python tests plus the web
 lint, format, and type checks. The Next.js production build passed. The

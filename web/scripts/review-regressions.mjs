@@ -55,6 +55,20 @@ const old = await create(),
 assert.equal((await del(old)).status, 204);
 assert.equal((await api("uploads/" + token, { method: "POST" })).status, 404);
 const id = await create();
+assert.equal((await api("cases/" + id + "/events")).status, 409);
+const listingsBefore = (await (await api("listings")).json()).length;
+for (const [price, photo] of [
+  ["Infinity", readFileSync(join(dir, "screen-01.png"))],
+  ["50", Buffer.from("not a PNG")],
+  ["50", Buffer.alloc(10_000_001)],
+]) {
+  const listing = new FormData();
+  listing.set("title", "Rejected product");
+  listing.set("price", price);
+  listing.set("photos", new Blob([photo], { type: "image/png" }), "photo.png");
+  assert.equal((await api("listings", { method: "POST", body: listing })).status, 422);
+}
+assert.equal((await (await api("listings")).json()).length, listingsBefore);
 const dark = clip("black", 6),
   bright = clip("white", 5);
 for (const bytes of [
@@ -69,17 +83,21 @@ const mdat = damaged.indexOf("mdat");
 const end = mdat - 4 + damaged.readUInt32BE(mdat - 4);
 damaged.fill(0, mdat + 4, end);
 assert.equal((await upload(id, damaged)).status, 422);
-const stream = await api("cases/" + id + "/events");
-const events = stream.text();
 const accepted = await upload(id, dark);
 assert.equal(accepted.status, 202);
 assert.match((await accepted.json()).warnings.join(" "), /dark/i);
+const events = (await api("cases/" + id + "/events")).text();
 const replay = await (await api("cases/" + id + "/events")).text();
 assert.match(replay, /event: started/);
 assert.match(replay, /event: done/);
 const seq = await events;
 assert.match(seq, /event: started[\s\S]+event: finished[\s\S]+event: done/);
 assert.doesNotMatch(seq, /verdict|confidence|evidence/);
+const malformed = await json("shop/cases/" + id + "/decision", {
+  choice: "side_buyer",
+  note_for_buyer: 42,
+});
+assert.equal(malformed.status, 422);
 const votes = await Promise.all(
   ["first", "second"].map((note) =>
     json("shop/cases/" + id + "/decision", { choice: "side_buyer", note_for_buyer: note }),

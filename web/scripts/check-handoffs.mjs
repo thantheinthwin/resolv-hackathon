@@ -1,4 +1,4 @@
-import { chromium } from "playwright";
+import { chromium, request } from "playwright";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 const browser = await chromium.launch({ channel: "chrome" });
@@ -83,6 +83,14 @@ try {
   const thirdUrl = await desktop.getByText("Open phone upload").getAttribute("href");
   const thirdToken = new URL(thirdUrl).pathname.split("/").pop();
   assert.notEqual(thirdToken, secondToken);
+  const replacement = await desktop.request.post("/api/cases/" + thirdId + "/upload-link");
+  assert.equal(replacement.status(), 200);
+  const { token: activeToken } = await replacement.json();
+  assert.notEqual(activeToken, thirdToken);
+  assert.equal(
+    (await phone.request.post("/api/uploads/" + thirdToken, { multipart })).status(),
+    404,
+  );
 
   // Hold the polling view one update behind the phone upload.
   await desktop.route("**/api/cases/" + thirdId, (route) =>
@@ -95,7 +103,7 @@ try {
   try {
     assert.match(dialog.message(), /permanently deletes.*video/);
     assert.equal(
-      (await phone.request.post("/api/uploads/" + thirdToken, { multipart })).status(),
+      (await phone.request.post("/api/uploads/" + activeToken, { multipart })).status(),
       202,
     );
   } finally {
@@ -220,32 +228,50 @@ try {
 
   const integrated = process.env.INTEGRATED_REHEARSAL_URL;
   if (integrated) {
+    const passcode = process.env.INTEGRATED_REHEARSAL_PASSCODE;
+    assert(passcode, "Set INTEGRATED_REHEARSAL_PASSCODE for the isolated integrated instance.");
     const api = (path) => new URL("/api/" + path, integrated).href;
-    const created = await phone.request.post(api("cases"), {
-      data: { order_id: "UJ-48213", claim_type: "damaged" },
+    const anonymous = await phone.request.get(api("shop/cases"));
+    assert.equal(anonymous.status(), 401);
+    assert.match(anonymous.headers()["www-authenticate"], /^Basic /);
+    const authenticated = await request.newContext({
+      httpCredentials: {
+        username: "demo",
+        password: passcode,
+        origin: new URL(integrated).origin,
+        send: "always",
+      },
     });
-    assert.equal(created.status(), 201);
-    const { id: caseId } = await created.json();
-    const path = "cases/" + caseId;
-    assert.equal((await (await phone.request.get(api(path))).json()).status, "sent");
-    const handoff = await phone.request.post(api(path + "/upload-link"));
-    assert.equal(handoff.status(), 200);
-    const { token } = await handoff.json();
-    const accepted = await phone.request.post(api("uploads/" + token), { multipart });
-    assert.equal(accepted.status(), 202);
-    assert.match(await (await phone.request.get(api(path + "/events"))).text(), /^event: done/m);
-    assert.equal((await (await phone.request.get(api(path))).json()).status, "with_shop");
+    try {
+      const created = await authenticated.post(api("cases"), {
+        data: { order_id: "UJ-48213", claim_type: "damaged" },
+      });
+      assert.equal(created.status(), 201);
+      const { id: caseId } = await created.json();
+      const path = "cases/" + caseId;
+      assert.equal((await (await authenticated.get(api(path))).json()).status, "sent");
+      const handoff = await authenticated.post(api(path + "/upload-link"));
+      assert.equal(handoff.status(), 200);
+      const { token } = await handoff.json();
+      const accepted = await phone.request.post(api("uploads/" + token), { multipart });
+      assert.equal(accepted.status(), 202);
+      assert.match(await (await authenticated.get(api(path + "/events"))).text(), /^event: done/m);
+      assert.equal((await (await authenticated.get(api(path))).json()).status, "with_shop");
 
-    const lateDiscard = await phone.request.delete(api(path + "?draft=1"));
-    assert.equal(lateDiscard.status(), 409);
-    const review = await phone.request.get(api("shop/cases/" + caseId));
-    assert.equal(review.status(), 200);
-    const { video_url } = await review.json();
-    const footage = await phone.request.get(new URL(video_url, integrated).href);
-    assert.equal(footage.status(), 200);
-    assert.deepEqual(await footage.body(), multipart.video.buffer);
-    assert.equal((await phone.request.delete(api(path))).status(), 204);
-    console.log("Passed draft-only deletion through the integrated proxy after a phone upload.");
+      const lateDiscard = await authenticated.delete(api(path + "?draft=1"));
+      assert.equal(lateDiscard.status(), 409);
+      const review = await authenticated.get(api("shop/cases/" + caseId));
+      assert.equal(review.status(), 200);
+      const { video_url } = await review.json();
+      const footage = await authenticated.get(new URL(video_url, integrated).href);
+      assert.equal(footage.status(), 200);
+      assert.equal(footage.headers()["x-content-type-options"], "nosniff");
+      assert.deepEqual(await footage.body(), multipart.video.buffer);
+      assert.equal((await authenticated.delete(api(path))).status(), 204);
+      console.log("Passed draft-only deletion through the integrated proxy after a phone upload.");
+    } finally {
+      await authenticated.dispose();
+    }
   }
 } finally {
   await browser.close();

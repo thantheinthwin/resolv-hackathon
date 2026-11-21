@@ -2,7 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import { caseEvents } from "./sample-events";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { readFile, writeFile, unlink } from "node:fs/promises";
+import { readFile, writeFile, unlink, rm } from "node:fs/promises";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -72,6 +72,34 @@ const orders: Order[] = [
 ];
 const reply = (value: unknown, status = 200) => Response.json(value, { status });
 const fail = (detail: string, status = 422) => reply({ detail }, status);
+const strings = (values: unknown): values is string[] =>
+  Array.isArray(values) && values.every((value) => typeof value === "string");
+function storedListing(value: unknown): Listing | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const candidate = value as Partial<Listing>;
+  if (
+    typeof candidate.id !== "string" ||
+    typeof candidate.title !== "string" ||
+    typeof candidate.price !== "number" ||
+    !Number.isFinite(candidate.price) ||
+    candidate.price < 0 ||
+    !strings(candidate.colors) ||
+    !strings(candidate.sizes) ||
+    !strings(candidate.box_contents) ||
+    !strings(candidate.photos)
+  )
+    return undefined;
+  return {
+    id: candidate.id,
+    title: candidate.title,
+    price: candidate.price,
+    description: typeof candidate.description === "string" ? candidate.description : "",
+    colors: candidate.colors,
+    sizes: candidate.sizes,
+    box_contents: candidate.box_contents,
+    photos: candidate.photos,
+  };
+}
 const buyerStatus: Record<ShopCase["status"], Report["status"]> = {
   awaiting_video: "sent",
   checking: "checking",
@@ -98,14 +126,15 @@ export async function sample(req: Request, parts: string[]) {
   const listingById = (id: string): Listing | undefined => {
     if (id === seed.id) return seed;
     const row = db.prepare("SELECT value FROM records WHERE kind='listing' AND id=?").get(id);
-    return row ? JSON.parse(String(row.value)) : undefined;
+    return row ? storedListing(JSON.parse(String(row.value))) : undefined;
   };
   const listingFor = (c: ShopCase) =>
     c.listing_id ? listingById(c.listing_id) : orders.find((o) => o.id === c.order_id)?.listing;
   const buyer = (c: ShopCase): Report => ({
     id: c.id,
     status: buyerStatus[c.status],
-    note_for_buyer: c.decision?.note_for_buyer ?? null,
+    note_for_buyer:
+      typeof c.decision?.note_for_buyer === "string" ? c.decision.note_for_buyer : null,
     product: listingFor(c)?.title,
     claim_type: c.claim_type,
   });
@@ -149,41 +178,77 @@ export async function sample(req: Request, parts: string[]) {
       return new Response(bytes, { headers });
     }
     if (area === "listings") {
-      if (req.method === "GET") return reply([seed, ...rows("listing")]);
-      const f = await req.formData(),
-        photos = f.getAll("photos");
+      if (req.method === "GET")
+        return reply([seed, ...rows("listing").map(storedListing).filter(Boolean)]);
+      const form = await req.formData().catch(() => null);
+      if (!form) return fail("Submit the product details and photos.");
+      const title = form.get("title");
+      const description = form.get("description") ?? "";
+      const priceText = form.get("price");
+      const price = typeof priceText === "string" && priceText.trim() ? Number(priceText) : NaN;
+      const colors = form.getAll("colors");
+      const sizes = form.getAll("sizes");
+      const contents = form.getAll("box_contents");
+      const photos = form.getAll("photos");
       if (
-        !String(f.get("title") || "").trim() ||
+        typeof title !== "string" ||
+        !title.trim() ||
+        typeof description !== "string" ||
+        description.length > 1500 ||
+        !Number.isFinite(price) ||
+        price < 0 ||
+        !strings(colors) ||
+        !strings(sizes) ||
+        !strings(contents) ||
         !photos.length ||
-        photos.length > 3 ||
-        String(f.get("description") || "").length > 1500
+        photos.length > 3
       )
-        return fail("Check the product name, description and photos.");
-      const urls = [];
-      if (
-        !photos.every(
-          (p): p is File =>
-            p instanceof File && ["image/jpeg", "image/png", "image/webp"].includes(p.type),
-        )
-      )
-        return fail("Use JPEG, PNG or WebP photos.");
-      for (const p of photos) {
-        const id = randomUUID();
-        await writeFile(path.join(dir, id), Buffer.from(await p.arrayBuffer()));
-        save(id, "file", { mime: p.type });
-        urls.push("/api/files/" + id);
+        return fail("Check the product details and attach one to three photos.");
+      if (!photos.every((photo): photo is File => photo instanceof File))
+        return fail("Attach product photos as files.");
+      if (photos.some((photo) => photo.size > 10_000_000))
+        return fail("A product photo exceeds 10 MB.");
+      const files: { id: string; mime?: string }[] = [];
+      let saved = false;
+      try {
+        for (const photo of photos) {
+          const file: (typeof files)[number] = { id: randomUUID() };
+          files.push(file);
+          const location = path.join(dir, file.id);
+          await writeFile(location, Buffer.from(await photo.arrayBuffer()));
+          const result: { mime?: string; error?: string } = JSON.parse(
+            (await worker("photo", location)).stdout,
+          );
+          if (!result.mime) return fail(result.error ?? "Couldn’t read this product photo.");
+          file.mime = result.mime;
+        }
+        const listing: Listing = {
+          id: randomUUID(),
+          title: title.trim(),
+          description,
+          price,
+          colors,
+          sizes,
+          box_contents: contents,
+          photos: files.map(({ id }) => "/api/files/" + id),
+        };
+        db.exec("BEGIN IMMEDIATE");
+        try {
+          for (const { id, mime } of files) save(id, "file", { mime });
+          save(listing.id, "listing", listing);
+          db.exec("COMMIT");
+        } catch (error) {
+          db.exec("ROLLBACK");
+          throw error;
+        }
+        saved = true;
+        return reply(listing, 201);
+      } catch {
+        return fail("Couldn’t save the product photos. Try again.", 503);
+      } finally {
+        if (!saved)
+          await Promise.all(files.map(({ id }) => rm(path.join(dir, id), { force: true })));
       }
-      const listing = {
-        ...Object.fromEntries(f),
-        id: randomUUID(),
-        photos: urls,
-        price: Number(f.get("price")),
-        colors: f.getAll("colors"),
-        sizes: f.getAll("sizes"),
-        box_contents: f.getAll("box_contents"),
-      };
-      save(listing.id, "listing", listing);
-      return reply(listing, 201);
     }
     if (area === "shop" && !action)
       return reply(
@@ -266,17 +331,33 @@ export async function sample(req: Request, parts: string[]) {
       }
     }
     if (area === "shop") {
-      if (req.method === "GET") return reply(c);
-      const d = await req.json();
+      if (req.method === "GET") {
+        if (c.decision && typeof c.decision.note_for_buyer !== "string")
+          c.decision.note_for_buyer = null;
+        return reply(c);
+      }
       if (c.status !== "ready") return fail("This case is not awaiting a decision.", 409);
+      const input: Record<string, unknown> | null = await req.json().catch(() => null);
+      if (!input || typeof input !== "object" || Array.isArray(input))
+        return fail("Choose a valid decision.");
+      const { choice, reason, note_for_buyer: note } = input;
+      const choices =
+        c.verdict?.display === "clear" ? ["agree", "disagree"] : ["side_buyer", "side_seller"];
       if (
-        !(
-          c.verdict?.display === "clear" ? ["agree", "disagree"] : ["side_buyer", "side_seller"]
-        ).includes(d.choice) ||
-        (d.choice === "disagree" && !reasons.includes(d.reason))
+        typeof choice !== "string" ||
+        Object.keys(input).some((key) => !["choice", "reason", "note_for_buyer"].includes(key)) ||
+        !choices.includes(choice) ||
+        (reason != null && (typeof reason !== "string" || !reasons.includes(reason))) ||
+        (choice === "disagree" && reason == null) ||
+        (note != null && typeof note !== "string")
       )
-        return fail("Choose a valid decision and reason.");
-      c.decision = d;
+        return fail("Choose a valid decision, reason, and explanation.");
+      type Decision = NonNullable<ShopCase["decision"]>;
+      c.decision = {
+        choice: choice as Decision["choice"],
+        reason: (reason ?? null) as Decision["reason"],
+        note_for_buyer: note ?? null,
+      };
       c.status = "decided";
       const changed = db
         .prepare(
@@ -285,11 +366,25 @@ export async function sample(req: Request, parts: string[]) {
         .run(JSON.stringify(c), id);
       return changed.changes ? reply(c) : fail("This case is not awaiting a decision.", 409);
     }
-    if (action === "events") return caseEvents(database, id, req.signal);
+    if (action === "events") {
+      if (c.status === "awaiting_video") return fail("Upload a video first.", 409);
+      return caseEvents(database, id, req.signal);
+    }
     if (action === "upload-link") {
-      if (c.status !== "awaiting_video") return fail("Video already received", 409);
       const t = randomUUID();
-      db.prepare("INSERT INTO tokens VALUES(?,?)").run(t, id);
+      db.exec("BEGIN IMMEDIATE");
+      try {
+        if (get(id)?.status !== "awaiting_video") {
+          db.exec("ROLLBACK");
+          return fail("Case unavailable or video already received.", 409);
+        }
+        db.prepare("DELETE FROM tokens WHERE id=?").run(id);
+        db.prepare("INSERT INTO tokens VALUES(?,?)").run(t, id);
+        db.exec("COMMIT");
+      } catch (error) {
+        db.exec("ROLLBACK");
+        throw error;
+      }
       return reply({ token: t, url: "/upload/" + t });
     }
     if (action === "video" || area === "uploads") {
@@ -362,6 +457,13 @@ export async function sample(req: Request, parts: string[]) {
       if (intake.error) return rejectFile(intake.error);
       db.exec("BEGIN IMMEDIATE");
       try {
+        if (
+          area === "uploads" &&
+          !db.prepare("SELECT 1 FROM tokens WHERE token=? AND id=?").get(key, id)
+        ) {
+          db.exec("ROLLBACK");
+          return rejectFile("This upload link is unavailable.", 404);
+        }
         if (get(id)?.status !== "awaiting_video") {
           db.exec("ROLLBACK");
           return rejectFile("Case unavailable or video already received.", 409);
