@@ -2,6 +2,8 @@
 
 import asyncio
 import hmac
+import hashlib
+import secrets
 import os
 import shutil
 from contextlib import asynccontextmanager
@@ -26,9 +28,10 @@ from fastapi.responses import FileResponse, StreamingResponse
 from api.app.contracts import Case, Decision, Listing, ProgressEvent
 from api.app.fake import FakeJudge, Judge, write_sample_verdict
 from api.app.jobs import JobRunner
+from api.app.listings import accept_listing, catalog, photo_response
 from api.app.uploads import accept_video, media_type
 from api.app.sample import LISTING, ORDER, OrderWithListing
-from api.app.store import Store, get_case, list_cases, save_case
+from api.app.store import Store, case_for_upload_link, get_case, list_cases, save_case
 from api.app.views import (
     BuyerCase,
     CreatedCase,
@@ -44,7 +47,7 @@ from api.app.views import (
 
 
 def multipart(form: type[BaseModel]) -> dict[str, object]:
-    """Document a future form without parsing or spooling requests to the placeholder."""
+    """Describe multipart fields for handlers that parse a bounded request stream."""
     return {
         "requestBody": {
             "required": True,
@@ -102,9 +105,6 @@ def create_app(data_dir: Path | None = None, judge: Judge | None = None) -> Fast
     app = FastAPI(title="Case review API", lifespan=lifespan)
     app.state.judge = judge if judge is not None else FakeJudge()
     router = APIRouter(prefix="/api", dependencies=[Depends(authorize)])
-    deferred = {
-        501: {"model": ErrorDetail, "description": "Planned for the upload integration checkpoint."}
-    }
 
     @app.get("/health")
     def health() -> dict[str, str]:
@@ -116,11 +116,37 @@ def create_app(data_dir: Path | None = None, judge: Judge | None = None) -> Fast
 
     @router.get("/listings")
     def listings() -> list[Listing]:
-        return [LISTING]
+        return catalog(store)
 
-    @router.post("/listings", responses=deferred, openapi_extra=multipart(ListingForm))
-    def add_listing() -> Listing:
-        raise HTTPException(501, "Listing uploads are not implemented in the sample API.")
+    multipart_errors = {
+        422: {
+            "description": "Invalid multipart form or request",
+            "content": {
+                "application/json": {
+                    "schema": {
+                        "anyOf": [
+                            {"$ref": "#/components/schemas/ErrorDetail"},
+                            {"$ref": "#/components/schemas/HTTPValidationError"},
+                        ]
+                    }
+                }
+            },
+        },
+    }
+
+    @router.post(
+        "/listings",
+        status_code=201,
+        responses=multipart_errors,
+        openapi_extra=multipart(ListingForm),
+    )
+    async def add_listing(request: Request) -> Listing:
+        """Add a product with 1–3 JPEG, PNG, or WebP photos (10 MB and 24 megapixels each).
+
+        Send colors, sizes and box_contents as repeated fields. The first photo is the main one.
+        """
+        async with app.state.intake_slots:
+            return await accept_listing(store, request)
 
     @router.post("/cases", status_code=201)
     def create_case(body: CreateCase) -> CreatedCase:
@@ -197,6 +223,7 @@ def create_app(data_dir: Path | None = None, judge: Judge | None = None) -> Fast
                 if folder.exists():
                     shutil.rmtree(folder)
             db.execute("DELETE FROM replaced_uploads WHERE case_id=?", (id,))
+            db.execute("DELETE FROM upload_links WHERE case_id=?", (id,))
             db.execute("DELETE FROM cases WHERE id=?", (id,))
         return Response(status_code=204)
 
@@ -235,26 +262,17 @@ def create_app(data_dir: Path | None = None, judge: Judge | None = None) -> Fast
 
         return StreamingResponse(stream(), media_type="text/event-stream")
 
+    upload_responses = {
+        404: {"model": ErrorDetail, "description": "Unknown case or upload link"},
+        409: {"model": ErrorDetail, "description": "Case already has a video"},
+        **multipart_errors,
+    }
+
     @router.post(
         "/cases/{id}/video",
         status_code=202,
         openapi_extra=multipart(VideoForm),
-        responses={
-            409: {"model": ErrorDetail, "description": "Case already has a video"},
-            422: {
-                "description": "Invalid video or request",
-                "content": {
-                    "application/json": {
-                        "schema": {
-                            "anyOf": [
-                                {"$ref": "#/components/schemas/ErrorDetail"},
-                                {"$ref": "#/components/schemas/HTTPValidationError"},
-                            ]
-                        }
-                    }
-                },
-            },
-        },
+        responses=upload_responses,
     )
     async def upload(id: str, request: Request) -> UploadResult:
         with store.connection() as db:
@@ -265,15 +283,41 @@ def create_app(data_dir: Path | None = None, judge: Judge | None = None) -> Fast
             warnings = await accept_video(request, store.root, app.state.runner, id)
         return UploadResult(id=id, status="checking", warnings=warnings)
 
-    @router.post("/cases/{id}/upload-link", responses=deferred)
+    @router.post(
+        "/cases/{id}/upload-link",
+        responses={
+            404: {"model": ErrorDetail},
+            409: {"model": ErrorDetail},
+        },
+    )
     def upload_link(id: str) -> UploadLink:
-        with store.connection() as db:
-            get_case(db, id)
-        raise HTTPException(501, "Phone upload is not implemented in the sample API.")
+        """Issue a one-time phone link, replacing any previous link for the case."""
+        with store.transaction() as db:
+            case = get_case(db, id)
+            if case.status not in ("awaiting_video", "failed"):
+                raise HTTPException(409, "This case already has a video.")
+            token = secrets.token_urlsafe(32)
+            db.execute(
+                "INSERT INTO upload_links(case_id, digest) VALUES (?, ?) "
+                "ON CONFLICT(case_id) DO UPDATE SET digest=excluded.digest",
+                (id, hashlib.sha256(token.encode()).digest()),
+            )
+        return UploadLink(token=token, url=f"/upload/{token}")
 
-    @router.post("/uploads/{token}", responses=deferred, openapi_extra=multipart(VideoForm))
-    def phone_upload(token: str) -> UploadResult:
-        raise HTTPException(501, "Phone upload is not implemented in the sample API.")
+    @router.post(
+        "/uploads/{token}",
+        status_code=202,
+        responses=upload_responses,
+        openapi_extra=multipart(VideoForm),
+    )
+    async def phone_upload(token: str, request: Request) -> UploadResult:
+        """Accept an upload for the case identified by its current phone link."""
+        digest = hashlib.sha256(token.encode()).digest()
+        with store.connection() as db:
+            case_id = case_for_upload_link(db, digest)
+        async with app.state.intake_slots:
+            warnings = await accept_video(request, store.root, app.state.runner, case_id, digest)
+        return UploadResult(id=case_id, status="checking", warnings=warnings)
 
     @router.get(
         "/files/{path:path}",
@@ -284,6 +328,8 @@ def create_app(data_dir: Path | None = None, judge: Judge | None = None) -> Fast
                     mime: {}
                     for mime in (
                         "image/png",
+                        "image/jpeg",
+                        "image/webp",
                         "video/mp4",
                         "video/quicktime",
                         "video/webm",
@@ -294,12 +340,14 @@ def create_app(data_dir: Path | None = None, judge: Judge | None = None) -> Fast
             }
         },
     )
-    def media(path: str) -> FileResponse:
+    def media(path: str) -> Response:
         """Serve catalog images and videos associated with an uploaded case."""
         if path == "listings/sample/tee.png":
             return FileResponse(
                 Path(__file__).parent / "fixtures" / "tee.png", media_type="image/png"
             )
+        if path.startswith("listings/"):
+            return photo_response(store, path)
         parts = path.split("/")
         if len(parts) == 3 and parts[0] == "cases" and parts[2] == "video.mp4":
             with store.connection() as db:

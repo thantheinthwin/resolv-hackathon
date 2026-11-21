@@ -96,22 +96,26 @@ def test_route_contracts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Non
         buyer_route = f"/api/cases/{case['id']}"
         assert client.get(buyer_route).json()["status"] == "sent"
         assert client.get("/api/shop/cases").json()[0]["display"] == "unsure"
-        assert client.post(buyer_route + "/upload-link").status_code == 501
+        assert client.post(buyer_route + "/upload-link").status_code == 200
         assert client.get(buyer_route + "/events").status_code == 409
         files = {"video": ("test.mp4", b"sample", "video/mp4")}
         assert client.post(buyer_route + "/video", files=files).status_code == 422
-        assert client.post("/api/uploads/sample", files=files).status_code == 501
+        assert client.post("/api/uploads/sample", files=files).status_code == 404
         assert client.delete(buyer_route).status_code == 204
         assert client.get(buyer_route).status_code == 404
         monkeypatch.delenv("DEMO_PASSCODE")
         assert client.get("/api/orders").status_code == 503
 
 
-def test_deferred_uploads_never_read_body(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_upload_preconditions_reject_before_reading_body(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from collections.abc import Iterator
 
     def unreadable_body() -> Iterator[bytes]:
-        raise AssertionError("A deferred upload must be rejected before reading body bytes")
+        raise AssertionError(
+            "Failed authorization or case preconditions must reject before reading the body"
+        )
         yield b""
 
     monkeypatch.setenv("DEMO_PASSCODE", "for-tests")
@@ -123,20 +127,22 @@ def test_deferred_uploads_never_read_body(tmp_path: Path, monkeypatch: pytest.Mo
             ]["properties"]["video"]["format"]
             == "binary"
         )
-        for url in ("/api/cases/UJ-SAMPLE/video", "/api/uploads/token", "/api/listings"):
-            for passcode, expected in (
-                ("invalid", 403),
-                ("for-tests", 409 if url.endswith("/video") else 501),
-            ):
-                response = client.post(
-                    url,
-                    headers={
-                        "X-Demo-Passcode": passcode,
-                        "Content-Type": "multipart/form-data; boundary=sample",
-                    },
-                    content=unreadable_body(),
-                )
-                assert response.status_code == expected
+        for url, passcode, expected in (
+            ("/api/cases/UJ-SAMPLE/video", "invalid", 403),
+            ("/api/uploads/token", "invalid", 403),
+            ("/api/listings", "invalid", 403),
+            ("/api/cases/UJ-SAMPLE/video", "for-tests", 409),
+            ("/api/uploads/token", "for-tests", 404),
+        ):
+            response = client.post(
+                url,
+                headers={
+                    "X-Demo-Passcode": passcode,
+                    "Content-Type": "multipart/form-data; boundary=sample",
+                },
+                content=unreadable_body(),
+            )
+            assert response.status_code == expected
 
 
 def test_read_during_write_and_competing_decisions(

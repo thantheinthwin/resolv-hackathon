@@ -1,7 +1,7 @@
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from api.app.contracts import Case, CaseStatus, ClaimType, Display
 
@@ -71,10 +71,10 @@ class VideoForm(BaseModel):
 
 
 class ListingForm(BaseModel):
-    title: str
-    description: str = Field(max_length=1500)
-    box_contents: list[str]
-    price: float = Field(ge=0)
-    colors: list[str]
-    sizes: list[str]
+    title: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+    description: str = Field(default="", max_length=1500)
+    box_contents: list[str] = Field(default_factory=list)
+    price: float = Field(ge=0, allow_inf_nan=False)
+    colors: list[str] = Field(default_factory=list)
+    sizes: list[str] = Field(default_factory=list)
     photos: list[bytes] = Field(min_length=1, max_length=3)
