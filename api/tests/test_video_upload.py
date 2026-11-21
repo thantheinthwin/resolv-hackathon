@@ -40,7 +40,8 @@ def test_video_survives_restart(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
             return super().run(case_dir)
 
     monkeypatch.setenv("DEMO_PASSCODE", "test")
-    headers = {"X-Demo-Passcode": "test"}
+    monkeypatch.setenv("SHOP_PASSCODE", "shop-test")
+    headers = {"X-Demo-Passcode": "test", "X-Shop-Passcode": "shop-test"}
     db_dir = tmp_path / "data"
     with TestClient(create_app(db_dir, PausedJudge()), headers=headers) as client:
         case_id = client.post(
@@ -103,7 +104,10 @@ def test_intake_concurrency_limit(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
 
     monkeypatch.setattr(uploads, "stage_and_submit", paused_intake)
     monkeypatch.setenv("DEMO_PASSCODE", "test")
-    with TestClient(create_app(tmp_path), headers={"X-Demo-Passcode": "test"}) as client:
+    monkeypatch.setenv("SHOP_PASSCODE", "shop-test")
+    with TestClient(
+        create_app(tmp_path), headers={"X-Demo-Passcode": "test", "X-Shop-Passcode": "shop-test"}
+    ) as client:
         case = client.post(
             "/api/cases", json={"order_id": "UJ-48213", "claim_type": "damaged"}
         ).json()

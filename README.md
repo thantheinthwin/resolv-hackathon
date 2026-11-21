@@ -19,13 +19,17 @@ The web server uses the passcode to fetch the seeded order. Use the same value
 in the `X-Demo-Passcode` header when exercising `/api` routes directly.
 
 Open `http://localhost:3000` and choose **View your orders**. The seeded shop
-case is available through `/api/shop/cases/UJ-SAMPLE`. It contains a sample
+case is available through `/api/shop/cases/UJ-SAMPLE`. For shop access, set a
+separate `SHOP_PASSCODE` on the API host and send it in `X-Shop-Passcode`
+alongside the demo header. Keep both credentials on the server. It contains a sample
 verdict for testing the integration. To exercise a new case through the API, submit a multipart
 `video` file to `POST /api/cases/{id}/video` and follow
 `GET /api/cases/{id}/events`. Accepted uploads enter `checking`; the shop
 detail exposes the verdict when the case reaches `ready`. A failed case
 accepts a replacement upload. Run one API process per data directory. It
 resumes interrupted jobs on startup and runs up to two judges at once.
+See the [service contracts](docs/CONTRACTS.md) for post-upload review, local
+opening inspection, evidence access, and daily limits.
 
 Run `make check` for the Python and web checks. After changing an API route,
 run `npm --prefix web run gen:api` against the running API and check the

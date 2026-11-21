@@ -63,10 +63,9 @@ and out of logs, buyer responses, and public media routes.
 | `complaint` | The written complaint and related finding text | The worker skips transfer and returns an unsure recommendation. The adapter can raise `ReviewRequired(request.stage)` to wait instead. A blank description uses the selected claim type locally. |
 | `reason` | Finding text for the deciding check | The worker keeps the deterministic bilingual reason |
 
-Catch `ReviewRequired` in the API adapter/job flow. Record the pending review
-and requeue after approval of the same request. The current job runner treats
-uncaught worker exceptions as failures, so handle this before enabling the
-adapter. Successful model results are reused from the private
+The API stores pending reviews and resumes the job after approval of the
+same request. Use `python -m api.review_pending CASE_ID` on the API host to
+inspect and respond to each pending stage. Successful model results are reused from the private
 `.judge-cache/` on retry. Local preparation runs again.
 
 The worker emits shared `ProgressEvent` messages for step start and finish if
@@ -82,31 +81,15 @@ complaint-blind observation and listing comparison, complaint grounding,
 deterministic verdict, exact-timestamp evidence, and bilingual reasons. The
 worker uses the same bounded model frame subset for the matcher and evidence
 pack. Grounded complaint links put relevant evidence first and scope reason
-selection when they match the deciding check. API approval, the host reviewer
-hook, and real upload verification remain integration work. The one-argument
+selection when they match the deciding check. The one-argument
 fixture path is for case directories without an uploaded `video.mp4`.
 
 ### Local opening review
 
-Enable the prompt in the operator's pre-upload command,
-`python -m api.review_video CASE_ID VIDEO`. Have `CaseJudge.prepare` accept
-an optional `opening_review` callback and pass it to `judge.run`:
-
-```python
-import judge
-
-verdict = judge.run(
-    case_dir,
-    inputs,
-    opening_review=opening_review,
-    review=review,
-)
-```
-
-In `api.review_video.main`, supply `prompt_opening_review` when calling
-`CaseJudge.prepare`. Keep the prompt out of the background upload job.
-Use a fresh case for the first run because the adapter reuses any matching
-verdict that was already prepared.
+Run `python -m api.review_video CASE_ID VIDEO` on the host before uploading
+the same video. This command passes the interactive opening reviewer to
+`CaseJudge.prepare`. Use a fresh case for the first run because the adapter
+reuses a matching verdict that was already prepared.
 
 Call this from the operator's local session. The default preview uses a
 locally installed `ffplay` window and streams the sampled image through a pipe.

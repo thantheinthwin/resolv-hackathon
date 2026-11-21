@@ -18,7 +18,11 @@ from api.main import create_app
 @pytest.fixture
 def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
     monkeypatch.setenv("DEMO_PASSCODE", "catalog-test")
-    with TestClient(create_app(tmp_path), headers={"X-Demo-Passcode": "catalog-test"}) as session:
+    monkeypatch.setenv("SHOP_PASSCODE", "shop-test")
+    with TestClient(
+        create_app(tmp_path),
+        headers={"X-Demo-Passcode": "catalog-test", "X-Shop-Passcode": "shop-test"},
+    ) as session:
         yield session
 
 
@@ -65,7 +69,8 @@ def test_shop_form_round_trip_and_restart(client: TestClient, tmp_path: Path) ->
 
 def test_listing_survives_api_restart(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DEMO_PASSCODE", "catalog-test")
-    headers = {"X-Demo-Passcode": "catalog-test"}
+    monkeypatch.setenv("SHOP_PASSCODE", "shop-test")
+    headers = {"X-Demo-Passcode": "catalog-test", "X-Shop-Passcode": "shop-test"}
     image = photo("JPEG")
     with TestClient(create_app(tmp_path), headers=headers) as session:
         response = session.post(
@@ -148,6 +153,7 @@ def test_chunked_listing_request_bound(client: TestClient, monkeypatch: pytest.M
                 headers={
                     "Content-Type": "multipart/form-data; boundary=x",
                     "X-Demo-Passcode": "catalog-test",
+                    "X-Shop-Passcode": "shop-test",
                 },
                 content=stream(),
             )

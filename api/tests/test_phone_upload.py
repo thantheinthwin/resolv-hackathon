@@ -55,7 +55,8 @@ def test_phone_link_restart_retry_and_single_use(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, recording: bytes
 ) -> None:
     monkeypatch.setenv("DEMO_PASSCODE", "test")
-    headers = {"X-Demo-Passcode": "test"}
+    monkeypatch.setenv("SHOP_PASSCODE", "shop-test")
+    headers = {"X-Demo-Passcode": "test", "X-Shop-Passcode": "shop-test"}
     with TestClient(create_app(tmp_path), headers=headers) as client:
         case_id = create_case(client)
         token = issue(client, case_id)
@@ -87,6 +88,7 @@ def test_rotating_link_while_phone_intake_in_flight(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, recording: bytes
 ) -> None:
     monkeypatch.setenv("DEMO_PASSCODE", "test")
+    monkeypatch.setenv("SHOP_PASSCODE", "shop-test")
     started, release = Event(), Event()
     inspect = uploads.inspect_video
 
@@ -96,7 +98,9 @@ def test_rotating_link_while_phone_intake_in_flight(
         return inspect(path)
 
     monkeypatch.setattr(uploads, "inspect_video", pause)
-    with TestClient(create_app(tmp_path), headers={"X-Demo-Passcode": "test"}) as client:
+    with TestClient(
+        create_app(tmp_path), headers={"X-Demo-Passcode": "test", "X-Shop-Passcode": "shop-test"}
+    ) as client:
         case_id = create_case(client)
         first = issue(client, case_id)
         with ThreadPoolExecutor(max_workers=1) as pool:
@@ -119,6 +123,7 @@ def test_concurrent_token_claims_accept_only_one_video(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, recording: bytes
 ) -> None:
     monkeypatch.setenv("DEMO_PASSCODE", "test")
+    monkeypatch.setenv("SHOP_PASSCODE", "shop-test")
     barrier = Barrier(2)
     inspect = uploads.inspect_video
 
@@ -128,7 +133,9 @@ def test_concurrent_token_claims_accept_only_one_video(
         return result
 
     monkeypatch.setattr(uploads, "inspect_video", wait_for_both)
-    with TestClient(create_app(tmp_path), headers={"X-Demo-Passcode": "test"}) as client:
+    with TestClient(
+        create_app(tmp_path), headers={"X-Demo-Passcode": "test", "X-Shop-Passcode": "shop-test"}
+    ) as client:
         token = issue(client, create_case(client))
         with ThreadPoolExecutor(max_workers=2) as pool:
             requests = [
@@ -144,7 +151,10 @@ def test_desktop_upload_revokes_phone_link(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, recording: bytes
 ) -> None:
     monkeypatch.setenv("DEMO_PASSCODE", "test")
-    with TestClient(create_app(tmp_path), headers={"X-Demo-Passcode": "test"}) as client:
+    monkeypatch.setenv("SHOP_PASSCODE", "shop-test")
+    with TestClient(
+        create_app(tmp_path), headers={"X-Demo-Passcode": "test", "X-Shop-Passcode": "shop-test"}
+    ) as client:
         case_id = create_case(client)
         token = issue(client, case_id)
         assert (

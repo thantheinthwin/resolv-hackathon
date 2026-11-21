@@ -17,6 +17,7 @@ def test_reviewed_upload_publishes_grounded_evidence(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("DEMO_PASSCODE", "test")
+    monkeypatch.setenv("SHOP_PASSCODE", "shop-test")
     monkeypatch.setenv("OPENAI_MODEL", "mock")
     approvals = []
     calls = []
@@ -61,7 +62,9 @@ def test_reviewed_upload_publishes_grounded_evidence(
     for _ in range(12):
         writer.write(pixels.integers(0, 255, (96, 96, 3), dtype=np.uint8))
     writer.release()
-    with TestClient(create_app(tmp_path), headers={"X-Demo-Passcode": "test"}) as client:
+    with TestClient(
+        create_app(tmp_path), headers={"X-Demo-Passcode": "test", "X-Shop-Passcode": "shop-test"}
+    ) as client:
         case_id = client.post(
             "/api/cases",
             json={"order_id": "UJ-48213", "claim_type": "damaged", "description": "Torn item"},
