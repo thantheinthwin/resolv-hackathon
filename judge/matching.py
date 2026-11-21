@@ -1,3 +1,4 @@
+# fmt: off  # TEMP diagnostic, do not merge
 """Five independent evidence-to-listing checks for the RE:SOLV judge.
 
 This stage consumes validated, privacy-reviewed frames and listing photos.
