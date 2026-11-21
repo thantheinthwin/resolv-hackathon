@@ -27,7 +27,7 @@ export function parseProductLink(
       if (url.pathname.startsWith("/shop/")) {
         return {
           error:
-            "That link opens the shop owner’s view. Ask the shop for the link they share with shoppers.",
+            "That link opens the shop owner’s view. Browse products to find the public page for your item.",
         };
       }
       const match = /^\/products\/([\w-]+)\/?$/.exec(url.pathname);

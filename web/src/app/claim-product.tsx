@@ -69,10 +69,15 @@ export function ClaimProduct({
     result && "error" in result
       ? result.error
       : result && listings && !item
-        ? "We couldn’t find that item. Check the link or ask the shop for a new one."
+        ? "We couldn’t find that item. Check the link or browse the products."
         : "";
   return (
     <div className="claim-product">
+      {!linkedProduct && (
+        <a className="text-link" href="/products">
+          Browse products
+        </a>
+      )}
       <form
         className="claim-search"
         onSubmit={(event) => {
@@ -93,7 +98,7 @@ export function ClaimProduct({
           }}
           aria-describedby="link-help"
         />
-        <p id="link-help">Open the item’s page in the shop, copy its link, and paste it here.</p>
+        <p id="link-help">Already have a product link? Paste it here.</p>
         <Button type="submit" disabled={busy}>
           Find my item
         </Button>

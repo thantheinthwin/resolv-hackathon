@@ -257,7 +257,11 @@ try {
     isMobile: true,
     hasTouch: true,
   });
-  await phone.goto(claimLink.href);
+  await phone.goto("/");
+  await phone.getByRole("link", { name: "Browse products" }).click();
+  await phone.getByRole("link", { name: new RegExp(duplicateColor) }).click();
+  await phone.waitForURL(claimLink.href);
+  assert.equal(await phone.getByRole("button", { name: "Copy product link" }).count(), 0);
   await phone.getByRole("link", { name: "Report a problem" }).click();
   await phone.getByRole("button", { name: "Yes, this is my item" }).click();
   const claimRegion = phone.locator("#start-a-claim");
