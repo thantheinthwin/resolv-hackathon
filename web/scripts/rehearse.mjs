@@ -40,21 +40,30 @@ try {
   await page.getByText("Report a problem").waitFor();
   await shot();
   await page.getByText("Report a problem").click();
+  assert.equal(await page.getByRole("radio", { checked: true }).count(), 0);
+  assert.equal(await page.getByRole("button", { name: "Continue to video" }).isDisabled(), true);
+  await page.getByRole("radio", { name: "Wrong item, color, or size" }).click();
   await page.locator("textarea").fill("The colour looks different from my order.");
   await shot();
+  await page.getByText("Continue to video").click();
+  await page.reload();
+  await page.getByText("Resume report").click();
   const created = page.waitForResponse(
     (r) => r.url().endsWith("/api/cases") && r.request().method() === "POST",
   );
-  await page.getByText("Continue to video").click();
-  const { id } = await (await created).json();
   await page
     .locator("input[type=file]")
     .setInputFiles({ name: "bad.mp4", mimeType: "video/mp4", buffer: Buffer.from("invalid") });
-  await page.getByText("Send video", { exact: true }).click();
+  await page.getByRole("button", { name: "Send to the shop" }).click();
+  const { id } = await (await created).json();
   await page.getByText("Choose a readable video.").waitFor();
   await page.locator("input[type=file]").setInputFiles(dir + "/sample.mp4");
   await shot();
-  await page.getByText("Send video", { exact: true }).click();
+  const accepted = page.waitForResponse(
+    (r) => r.url().endsWith("/api/cases/" + id + "/video") && r.status() === 202,
+  );
+  await page.getByRole("button", { name: "Send to the shop" }).click();
+  await accepted;
   await page.getByText("Sent to the shop.", { exact: true }).waitFor();
   await shot();
   await page.getByRole("button", { name: /Unboxing Judge/ }).click();
@@ -64,9 +73,17 @@ try {
   await page.getByText("Unsure: check the video").waitFor();
   await shot();
   await page.locator("select").selectOption("side_buyer");
+  assert.equal(
+    await page.locator("textarea").evaluate((input) => input.validity.valueMissing),
+    true,
+  );
   await page.locator("textarea").fill("We will contact you to arrange a replacement.");
   await page.getByText("Save decision").click();
   await page.getByText("Decision saved").waitFor();
+  await page.getByRole("button", { name: "Back to inbox" }).click();
+  assert.equal(await row.count(), 0);
+  await page.getByRole("button", { name: "Resolved" }).click();
+  await row.getByText("View decision").waitFor();
   await page.getByRole("button", { name: /Unboxing Judge/ }).click();
   await page.getByText("Continue as buyer").click();
   await page.getByText("My reports", { exact: true }).click();

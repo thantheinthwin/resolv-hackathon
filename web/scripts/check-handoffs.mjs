@@ -9,11 +9,22 @@ try {
   await desktop.goto("/");
   await desktop.getByText("Continue as buyer").click();
   await desktop.getByText("Report a problem").click();
-  const create = desktop.waitForResponse((r) => r.url().endsWith("/api/cases"));
+  await desktop.getByRole("radio", { name: "Missing items or parts" }).click();
   await desktop.getByText("Continue to video").click();
+  const create = desktop.waitForResponse((r) => r.url().endsWith("/api/cases"));
+  await desktop.getByRole("button", { name: "Show QR code" }).click();
   const { id } = await (await create).json();
-  await desktop.getByText("Upload from phone").click();
+  const seller = await browser.newPage({ baseURL });
+  await seller.goto("/");
+  await seller.getByText("Continue as shop owner").click();
+  await seller.getByRole("heading", { name: "Inbox." }).waitFor();
+  await seller.getByText("Loading the inbox…").waitFor({ state: "hidden" });
+  assert.equal(await seller.locator('[data-case="' + id + '"]').count(), 0);
+  await seller.getByRole("button", { name: "Checking" }).click();
+  assert.equal(await seller.locator('[data-case="' + id + '"]').count(), 0);
   const url = await desktop.getByText("Open phone upload").getAttribute("href");
+  await desktop.reload();
+  await desktop.getByText("Resume report").click();
   const phone = await browser.newPage({
     baseURL,
     viewport: { width: 390, height: 844 },
@@ -26,32 +37,132 @@ try {
   await phone.getByText("Done. You can close this page.").waitFor();
   await desktop.getByText("Sent to the shop.", { exact: true }).waitFor();
   const token = new URL(url).pathname.split("/").pop();
-  assert.equal(
-    (
-      await phone.request.post("/api/uploads/" + token, {
-        multipart: {
-          video: {
-            name: "x.mp4",
-            mimeType: "video/mp4",
-            buffer: await readFile(dir + "/sample.mp4"),
-          },
-        },
-      })
-    ).status(),
-    404,
+  const multipart = {
+    video: {
+      name: "sample.mp4",
+      mimeType: "video/mp4",
+      buffer: await readFile(dir + "/sample.mp4"),
+    },
+  };
+  assert.equal((await phone.request.post("/api/uploads/" + token, { multipart })).status(), 404);
+
+  // Generate a QR in this mounted desk, then complete the report and start another.
+  await desktop.getByRole("link", { name: "Your orders" }).click();
+  await desktop.getByRole("button", { name: "Report a problem" }).click();
+  await desktop.getByRole("radio", { name: "Damaged item" }).click();
+  await desktop.getByRole("button", { name: "Continue to video" }).click();
+  const secondCreated = desktop.waitForResponse((response) =>
+    response.url().endsWith("/api/cases"),
   );
+  await desktop.getByRole("button", { name: "Show QR code" }).click();
+  const { id: secondId } = await (await secondCreated).json();
+  const secondUrl = await desktop.getByText("Open phone upload").getAttribute("href");
+  const secondToken = new URL(secondUrl).pathname.split("/").pop();
+  assert.equal(
+    (await phone.request.post("/api/uploads/" + secondToken, { multipart })).status(),
+    202,
+  );
+  await desktop.getByRole("heading", { name: "Sent to the shop." }).waitFor();
+  await desktop.getByRole("link", { name: "Your orders" }).click();
+  await desktop.getByRole("button", { name: "Report a problem" }).click();
+  await desktop.getByRole("radio", { name: "Damaged item" }).click();
+  await desktop.getByRole("button", { name: "Continue to video" }).click();
+  assert.equal(await desktop.getByText("Open phone upload").count(), 0);
+  const thirdCreated = desktop.waitForResponse((response) => response.url().endsWith("/api/cases"));
+  await desktop.getByRole("button", { name: "Show QR code" }).click();
+  const { id: thirdId } = await (await thirdCreated).json();
+  const thirdUrl = await desktop.getByText("Open phone upload").getAttribute("href");
+  const thirdToken = new URL(thirdUrl).pathname.split("/").pop();
+  assert.notEqual(thirdToken, secondToken);
+
+  await desktop.getByRole("link", { name: "My reports" }).click();
+  const confirmDiscard = desktop.waitForEvent("dialog");
+  const discard = desktop.getByRole("button", { name: "Discard draft" }).click();
+  const dialog = await confirmDiscard;
+  try {
+    assert.match(dialog.message(), /permanently deletes.*video/);
+    assert.equal(
+      (await phone.request.post("/api/uploads/" + thirdToken, { multipart })).status(),
+      202,
+    );
+  } finally {
+    await dialog.accept();
+  }
+  await discard;
+  await desktop
+    .getByText("Your video reached the shop. The report is still in My reports.")
+    .waitFor();
+  const preserved = await phone.request.get("/api/shop/cases/" + thirdId);
+  assert.equal(preserved.status(), 200);
+  assert((await preserved.json()).video_url);
+
+  await seller.route("**/api/shop/cases/" + secondId, async (route) => {
+    const response = await route.fetch();
+    const item = await response.json();
+    item.verdict.leaning = "seller";
+    await route.fulfill({ json: item });
+  });
+  const decisionReceived = Promise.withResolvers();
+  const deliverDecision = Promise.withResolvers();
+  const decisionPath = "/api/shop/cases/" + id + "/decision";
+  await seller.route("**" + decisionPath, async (route) => {
+    const response = await route.fetch();
+    decisionReceived.resolve(response.status());
+    await deliverDecision.promise;
+    await route.fulfill({ response });
+  });
+  await seller.getByRole("button", { name: "Needs review" }).click();
+  await seller
+    .locator('[data-case="' + id + '"]')
+    .getByText("Review case")
+    .click();
+  await seller.getByText("Unsure: check the video").waitFor();
+  await seller.getByLabel("Decision", { exact: true }).selectOption("side_buyer");
+  await seller.getByLabel("Explanation for the buyer").fill("Decision for the first report.");
+  await seller.getByRole("button", { name: "Save decision" }).click();
+  const decisionResponse = seller.waitForResponse(
+    (response) => response.url().endsWith(decisionPath) && response.status() === 200,
+  );
+  try {
+    assert.equal(await decisionReceived.promise, 200);
+    await seller.getByRole("button", { name: "Back to inbox" }).click();
+    await seller
+      .locator('[data-case="' + secondId + '"]')
+      .getByText("Review case")
+      .click();
+    await seller.getByText("Model leans toward the shop.").waitFor();
+  } finally {
+    deliverDecision.resolve();
+  }
+  const queueRefreshed = seller.waitForRequest(
+    (request) => request.url().endsWith("/api/shop/cases") && request.method() === "GET",
+  );
+  await (await decisionResponse).finished();
+  await queueRefreshed;
+  assert.equal(await seller.getByRole("heading", { name: "Damaged item" }).isVisible(), true);
+  assert.equal(await seller.getByRole("heading", { name: "Decision saved" }).count(), 0);
+  await seller.getByRole("button", { name: "Back to inbox" }).click();
+  await seller.getByRole("button", { name: "Resolved" }).click();
+  await seller
+    .locator('[data-case="' + id + '"]')
+    .getByText("View decision")
+    .waitFor();
+
   await desktop.getByRole("button", { name: /Unboxing Judge/ }).click();
   await desktop.getByText("Continue as shop owner").click();
-  await desktop.route("**/api/shop/cases/" + id, async (route) => {
+  await desktop.route("**/api/shop/cases/" + secondId, async (route) => {
     const res = await route.fetch();
     const c = await res.json();
-    c.verdict.evidence = [{ t: 2, check: "listing", result: "flag", frame: "frame.jpg" }];
+    const photo = "/api/files/listings/sample/tee.png";
+    c.verdict.evidence = [
+      { t: 2, check: "listing", result: "flag", frame: photo, listing_photo: photo },
+    ];
     c.verdict.display = "clear";
     c.verdict.verdict = "buyer_right";
     await route.fulfill({ json: c });
   });
   await desktop
-    .locator('[data-case="' + id + '"]')
+    .locator('[data-case="' + secondId + '"]')
     .getByText("Review case")
     .click();
   await desktop
@@ -61,10 +172,11 @@ try {
         v.readyState >= 1 ||
         new Promise((r) => v.addEventListener("loadedmetadata", r, { once: true })),
     );
-  await desktop.getByText("2s · listing").click();
+  await desktop.getByRole("button", { name: "0:02 Listing match" }).click();
   await desktop.waitForFunction(
     () => Math.abs(document.querySelector("video").currentTime - 2) < 0.1,
   );
+  await desktop.getByRole("img", { name: "Listing photo of Everyday cotton tee" }).waitFor();
   await desktop.locator("form select").first().selectOption("disagree");
   assert.equal(
     await desktop
@@ -81,7 +193,7 @@ try {
   await desktop.getByText("Save product").click();
   await desktop.getByText("Walkthrough sample", { exact: true }).first().waitFor();
   console.log(
-    "Passed emulated phone upload, desktop confirmation, spent token rejection, fixture evidence seek, disagreement validation and product creation.",
+    "Passed QR handoff and token isolation, discard during phone upload, late seller save, unsure leaning, evidence seek, disagreement validation and product creation.",
   );
 } finally {
   await browser.close();

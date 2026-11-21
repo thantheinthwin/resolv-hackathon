@@ -5,12 +5,15 @@ export type Order = Schema["OrderWithListing"];
 export type Report = Schema["BuyerCase"];
 export type Case = Schema["Case"];
 export type CreatedCase = Schema["CreatedCase"];
+export type UploadLink = Schema["UploadLink"];
+export type UploadResult = Schema["UploadResult"];
+export type Claim = Case["claim_type"];
 export const claims = {
-  wrong_item: "Wrong item",
-  missing: "Something missing",
-  damaged: "Damaged",
-  counterfeit: "Looks fake",
-};
+  wrong_item: "Wrong item, color, or size",
+  missing: "Missing items or parts",
+  damaged: "Damaged item",
+  counterfeit: "Suspected counterfeit",
+} satisfies Record<Claim, string>;
 export const reasons = [
   "wrong colour seen",
   "item is complete",

@@ -112,17 +112,23 @@ try {
   const p = await b.newPage({ baseURL: base, viewport: { width: 743, height: 979 } });
   await p.goto("/");
   await p.getByText("Continue as shop owner").click();
+  const failure = p.locator('[data-case="' + failed + '"]');
+  await failure.getByText("Video check failed").waitFor();
+  assert.equal(await failure.getByRole("button", { name: "Review case" }).count(), 0);
+  await p.getByRole("button", { name: "Resolved" }).click();
   await p
     .locator('[data-case="' + id + '"]')
-    .getByText("Review case")
+    .getByText("View decision")
     .click();
+  await p.getByRole("heading", { name: "Review case." }).waitFor();
   await p.getByRole("heading", { name: "Everyday cotton tee" }).waitFor();
-  await p.getByText("side buyer · " + winner).waitFor();
+  await p.getByText("Support the buyer").waitFor();
+  await p.getByText(winner, { exact: true }).waitFor();
   await p.getByRole("button", { name: /Unboxing Judge/ }).click();
   await p.getByText("Continue as buyer").click();
   await p.getByText("My reports", { exact: true }).click();
   const button = p
-    .locator("tr")
+    .getByRole("listitem")
     .filter({ hasText: id.slice(0, 8) })
     .getByText("Delete report");
   p.once("dialog", (dialog) => dialog.dismiss());
@@ -141,6 +147,7 @@ try {
   await p.getByRole("button", { name: /Unboxing Judge/ }).click();
   await p.getByText("Continue as buyer").click();
   await p.getByText("Report a problem").click();
+  await p.getByRole("radio", { name: "Damaged item" }).click();
   await p.getByText("Continue to video").click();
   await p.evaluate(() => {
     XMLHttpRequest.prototype.send = function () {
@@ -148,10 +155,11 @@ try {
     };
   });
   await p.locator("input[type=file]").setInputFiles(join(dir, "white5.mp4"));
-  await p.getByText("Send video").click();
+  await p.getByRole("button", { name: "Send to the shop" }).click();
   const bar = p.getByRole("progressbar");
   await bar.waitFor();
   assert.equal(await bar.getAttribute("aria-valuenow"), "0");
+  await p.waitForFunction(() => !!window.reviewUpload);
   await p.evaluate(() =>
     window.reviewUpload.upload.dispatchEvent(
       new ProgressEvent("progress", { lengthComputable: true, loaded: 42, total: 100 }),

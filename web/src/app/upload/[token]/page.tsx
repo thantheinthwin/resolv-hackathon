@@ -14,9 +14,9 @@ export default function Phone({ params }: { params: Promise<{ token: string }> }
       {order && <p>Order {order}</p>}
       {!done && (
         <Uploader
-          endpoint={"uploads/" + encodeURIComponent(token)}
-          onDone={(w) => {
-            warn(w);
+          getEndpoint={() => "uploads/" + encodeURIComponent(token)}
+          onDone={({ warnings }) => {
+            warn(warnings?.join(" ") ?? "");
             setDone(true);
           }}
         />

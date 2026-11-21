@@ -44,6 +44,9 @@ REHEARSAL_URL to its localhost URL. Run these commands in order:
 3. `node scripts/review-regressions.mjs` checks deletion, intake boundaries
    and darkness warnings, concurrent decisions, shop product context, job
    events, and the accessible upload percentage in an isolated case store.
+4. `node scripts/mobile-flow.mjs` checks direct buyer uploads and seller review
+   with iPhone and Android screen profiles in Chrome. Install Playwright WebKit
+   and set `PHONE_WEBKIT=1` to run the iPhone profile in WebKit.
 
 The live proxy was exercised with a temporary FastAPI store for orders, shop
 context, case creation, and deletion (204 followed by 404). Physical phone
@@ -54,3 +57,12 @@ and the production build passed, and Chrome exercised the role flows and six
 review regressions. The repository-wide check stopped at Ruff formatting in
 three unchanged judge files (integrity and its test, plus the privacy test).
 This local checkpoint still needs the team's green CI and seam review before merge.
+
+## Mobile redesign handoff
+
+- **Voice transcription** is a follow-up. Start with **Dictate description**, let the buyer review
+  and edit the text, then submit the report. Agree on Thai and English support, microphone
+  permission handling, and how audio is processed and retained. The optional description field
+  also accepts the phone keyboard’s dictation where available.
+- **Photo evidence** is a follow-up for buyers who have already opened the parcel. It needs an API
+  path for attaching photos and a manual review workflow for cases without video.
