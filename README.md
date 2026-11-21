@@ -10,13 +10,19 @@ Start with the [agent guide](AGENTS.md) for team rules, service ownership, and c
 | `api/` | FastAPI service for case intake and review |
 | `judge/` | Python package for evidence analysis |
 
-## Run the API
+## Run the competition baseline
 
-From the repository root, use a Python 3.12 virtual environment and run:
+Install Python 3.12, Node.js 22.12 or later, npm, and FFmpeg with ffprobe. From the
+repository root, run `make setup`. Set `DEMO_PASSCODE` in your shell, then run
+`make dev` to start the web app on port 3000 and the API on port 8000.
+The web server uses the passcode to fetch the seeded order. Use the same value
+in the `X-Demo-Passcode` header when exercising `/api` routes directly.
 
-```sh
-python -m pip install -r api/requirements.txt
-python -m uvicorn api.main:app --reload
-```
+Open `http://localhost:3000` and choose **View your orders**. The seeded shop
+case is available through `/api/shop/cases/UJ-SAMPLE`. It contains a sample
+verdict for testing the integration. Video submission and live job progress
+are scheduled for the next checkpoint.
 
-Open `http://localhost:8000/health` to check the service and `http://localhost:8000/docs` for the interactive API documentation.
+Run `make check` for the Python and web checks. After changing an API route,
+run `npm --prefix web run gen:api` against the running API and check the
+generated TypeScript diff.
