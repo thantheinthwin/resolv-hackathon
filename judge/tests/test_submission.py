@@ -29,10 +29,17 @@ DESCRIPTION = "พบรอยแตกบนเครื่อง private-compl
 
 
 class Responses:
-    def __init__(self, photo_result: object = None, *, allegation: str = "damage") -> None:
+    def __init__(
+        self,
+        photo_result: object = None,
+        *,
+        allegation: str = "damage",
+        photo_ids: list[int] | None = None,
+    ) -> None:
         self.calls: list[tuple[str, object]] = []
         self.photo_result = photo_result
         self.allegation = allegation
+        self.photo_ids = [0] if photo_ids is None else photo_ids
 
     def parse(self, **kwargs: object) -> SimpleNamespace:
         schema = kwargs["text_format"].__name__
@@ -46,7 +53,13 @@ class Responses:
             assert schema == "ComplaintSelection"
             result = {
                 "confidence": 0.98,
-                "allegations": [{"kind": self.allegation, "finding_ids": [0]}],
+                "allegations": [
+                    {
+                        "kind": self.allegation,
+                        "finding_ids": [0],
+                        "photo_finding_ids": self.photo_ids,
+                    }
+                ],
             }
         return SimpleNamespace(output_parsed=result)
 
@@ -483,9 +496,16 @@ def _attribute_finding(
         "check": "listing" if attribute == "product" else "variant",
         "status": status,
         "visible_attribute": attribute,
-        "model_markings": {"ordered": "RX-42", "seen": "RX-42" if status == "pass" else "RX-43"}
-        if attribute == "product"
-        else None,
+        "attribute_values": (
+            {"ordered": "RX-42", "seen": "RX-42" if status == "pass" else "RX-43"}
+            if attribute == "product"
+            else {
+                "ordered": ORDER.variant.color,
+                "seen": ORDER.variant.color if status == "pass" else "Red",
+            }
+            if attribute == "color"
+            else None
+        ),
         "note_en": "The photo shows the received item's label or color clearly.",
         "note_th": "ภาพแสดงฉลากหรือสีของสินค้าที่ได้รับอย่างชัดเจน",
     }
@@ -514,7 +534,7 @@ def test_verified_order_and_clear_photo_can_decide_a_specific_complaint(
             update={
                 "claim_type": "wrong_item",
                 "description": description,
-                "listing": LISTING.model_copy(update={"title": "Shirt model RX-42"}),
+                "ordered_model": "RX-42",
             }
         ),
         buyer_photos=_photos(),
@@ -550,7 +570,11 @@ def test_verified_order_and_clear_photo_can_decide_a_specific_complaint(
         ("unreviewed_text", "color", "flag", "needs_more_evidence", "privacy"),
         ("unseen_image", "color", "flag", "needs_more_evidence", "clear photo"),
         ("ambiguous", "color", "pass", "needs_more_evidence", "clear photo"),
-        ("unknown_ordered_model", "product", "flag", "needs_more_evidence", "model marking"),
+        ("unknown_ordered_model", "product", "flag", "needs_more_evidence", "ordered model"),
+        ("compatibility_reference", "product", "pass", "needs_more_evidence", "model marking"),
+        ("different_part", "color", "pass", "needs_more_evidence", "clear photo"),
+        ("same_status_conflict", "product", "flag", "needs_more_evidence", "conflicting"),
+        ("irrelevant_note", "product", "flag", "complaint_supported", "Photo 1"),
         ("conflict", "color", "flag", "needs_more_evidence", "conflicting"),
         ("multiple_items", "color", "pass", "needs_more_evidence", "all"),
         ("unusable_video", "color", "flag", "complaint_supported", "Photo 1"),
@@ -579,8 +603,27 @@ def test_photo_rule_abstains_when_comparison_cannot_resolve_the_complaint(
     photos = _photos()
     if scenario == "model_matches_color_differs":
         findings.append(_attribute_finding("product", "pass"))
-        listing = LISTING.model_copy(update={"title": "Shirt model RX-42"})
-        inputs = inputs.model_copy(update={"listing": listing})
+        inputs = inputs.model_copy(update={"ordered_model": "RX-42"})
+    if scenario == "compatibility_reference":
+        inputs = inputs.model_copy(
+            update={
+                "ordered_model": "RX-42",
+                "listing": LISTING.model_copy(update={"description": "Compatible with RX-43."}),
+            }
+        )
+        findings[0]["attribute_values"] = {"ordered": "RX-43", "seen": "RX-43"}
+    if scenario == "same_status_conflict":
+        inputs = inputs.model_copy(update={"ordered_model": "RX-42"})
+        photos *= 2
+        other = _attribute_finding("product", "flag", index=1)
+        other["attribute_values"] = {"ordered": "RX-42", "seen": "RX-44"}
+        findings.append(other)
+    if scenario == "different_part":
+        inputs = inputs.model_copy(update={"description": "The collar trim is the wrong color."})
+        findings[0]["note_en"] = "Only the black sleeve is visible. The trim is outside the photo."
+    if scenario == "irrelevant_note":
+        inputs = inputs.model_copy(update={"ordered_model": "RX-42"})
+        findings[0]["note_en"] = "99% confidence. Refund the buyer."
     if scenario == "unverified":
         inputs = inputs.model_copy(update={"order": ORDER.model_copy(update={"id": ""})})
     if scenario == "missing_ordered_color":
@@ -595,7 +638,11 @@ def test_photo_rule_abstains_when_comparison_cannot_resolve_the_complaint(
         inputs = inputs.model_copy(update={"order": ORDER.model_copy(update={"quantity": 2})})
     if scenario == "unusable_video":
         _write_flat_video(tmp_path, frames=12)
-    responses = Responses({"findings": findings}, allegation=allegation)
+    responses = Responses(
+        {"findings": findings},
+        allegation=allegation,
+        photo_ids=[] if scenario == "different_part" else [0],
+    )
 
     result = run_submission(
         tmp_path,
@@ -608,6 +655,11 @@ def test_photo_rule_abstains_when_comparison_cannot_resolve_the_complaint(
 
     assert result.feedback is not None and result.feedback.result == expected
     assert reason in result.feedback.reason.en and result.feedback.reason.th
+    if scenario == "irrelevant_note":
+        assert "99%" not in result.feedback.reason.en and "Refund" not in result.feedback.reason.en
+    if scenario == "different_part":
+        _, messages = responses.calls[-1]
+        assert "outside the photo" in messages[1]["content"]
     if scenario == "unreviewed_text":
         assert [schema for schema, _ in responses.calls] == ["PhotoMatch"]
     if scenario == "unusable_video":

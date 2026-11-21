@@ -74,6 +74,7 @@ class SubmissionInputs(BaseModel):
     claim_type: ClaimType
     description: str = Field(default="", repr=False)
     order: Order = Field(repr=False)
+    ordered_model: str | None = Field(default=None, min_length=1, max_length=80, repr=False)
     listing: Listing = Field(repr=False)
     listing_photos: tuple[ReviewedListingPhoto, ...] = Field(default=(), max_length=3, repr=False)
     opening: OpeningObservation | None = Field(default=None, repr=False)

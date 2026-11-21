@@ -138,9 +138,11 @@ unboxing video. A narrow written allegation requires a photo of that same
 attribute, classified only after its separate privacy review. An omitted
 complaint can support an obvious mismatch under the selected wrong-item
 claim. A match requires a specific written allegation and a single-item order.
-The model check needs a legible marking and an unambiguous model in the
-verified listing. The color check needs an ordered color and clear neutral
-lighting. If photos disagree on the attribute, more evidence is needed.
+The model check needs a legible marking and `SubmissionInputs.ordered_model`
+from the server's verified order or catalog record. Populate it only when the
+purchased model is known. A compatibility mention in a listing description
+cannot establish that model. The color check needs an ordered color and
+clear neutral lighting. If photos disagree on the attribute, more evidence is needed.
 The reason names the numbered photo in `buyer_photos`. Keep `photo_findings`
 and the referenced JPEGs private to the shop. Saved `needs_human_check`
 feedback is read as `needs_more_evidence` with its existing reason.

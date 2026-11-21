@@ -11,6 +11,7 @@ from judge.text_model import parse_text
 from judge.vision import VisionClient
 
 AllegationKind = Literal["product", "color", "size", "count", "damage", "counterfeit"]
+PhotoAttribute = Literal["product", "color"]
 ComparisonName = Literal["listing", "variant", "count", "damage", "counterfeit"]
 ALLEGATIONS: dict[ClaimType, tuple[AllegationKind, ...]] = {
     "wrong_item": ("product", "color", "size"),
@@ -37,6 +38,10 @@ SYSTEM_PROMPT = (
     "whether supporting or contradicting it. Also report supporting_finding_ids as the subset "
     "whose text directly supports the allegation. Exclude contradictory or neutral findings "
     "from that subset. A color finding cannot establish a size allegation. "
+    "If photo findings are supplied, put their IDs in photo_finding_ids only when the photo "
+    "finding directly addresses the exact attribute and part alleged. A visible sleeve cannot "
+    "resolve a complaint about unseen collar trim. Link a model match only if the text "
+    "identifies the model as the complaint. Keep timed finding IDs separate. "
     "Use an empty list when the supplied findings do not address an allegation. "
     "Do not invent observations, repeat personal information, or give a verdict."
 )
@@ -47,6 +52,18 @@ class ComplaintError(ValueError):
     """Complaint analysis cannot proceed safely with the supplied inputs."""
 
 
+class PhotoComplaintFinding(BaseModel):
+    """A grounded still-photo comparison available to the text-only classifier."""
+
+    model_config = STRICT
+
+    attribute: PhotoAttribute
+    ordered: str
+    seen: str
+    note_en: str
+    note_th: str
+
+
 class AllegationSelection(BaseModel):
     model_config = STRICT
 
@@ -55,6 +72,7 @@ class AllegationSelection(BaseModel):
     supporting_finding_ids: list[int] = Field(
         default_factory=list, max_length=MAX_FINDINGS_PER_CHECK
     )
+    photo_finding_ids: list[int] = Field(default_factory=list, max_length=MAX_FINDINGS_PER_CHECK)
 
 
 class ComplaintSelection(BaseModel):
@@ -82,6 +100,7 @@ class GroundedAllegation(BaseModel):
     evidence: list[FindingReference]
     candidates: list[FindingReference]
     supporting_evidence: list[FindingReference] = Field(default_factory=list)
+    photo_evidence: list[int] = Field(default_factory=list)
 
 
 class ComplaintAssessment(BaseModel):
@@ -95,6 +114,7 @@ def _resolve(
     selection: ComplaintSelection,
     kinds: tuple[AllegationKind, ...],
     catalogue: list[tuple[ComparisonName, Finding]],
+    photo_catalogue: dict[int, PhotoComplaintFinding],
 ) -> ComplaintAssessment:
     allegations: list[GroundedAllegation] = []
     for kind in kinds:
@@ -105,6 +125,7 @@ def _resolve(
         supporting_ids = {
             finding_id for item in matching for finding_id in item.supporting_finding_ids
         }
+        photo_ids = {index for item in matching for index in item.photo_finding_ids}
         check_name = CHECKS[kind]
         references = {
             index: FindingReference(check=check, t=finding.t)
@@ -123,6 +144,11 @@ def _resolve(
                 kind=kind,
                 evidence=[] if variant else direct,
                 candidates=direct if variant else [],
+                photo_evidence=[
+                    index
+                    for index, finding in photo_catalogue.items()
+                    if index in photo_ids and finding.attribute == kind
+                ],
                 supporting_evidence=[]
                 if variant
                 else [FindingReference(check=check_name, t=t) for t in supporting_times],
@@ -138,8 +164,9 @@ def _complaint_payload(
     claim_type: ClaimType,
     description: str,
     catalogue: list[tuple[ComparisonName, Finding]],
+    photo_catalogue: dict[int, PhotoComplaintFinding] | None = None,
 ) -> dict[str, object]:
-    return {
+    payload: dict[str, object] = {
         "selected_claim_type": claim_type,
         "untrusted_complaint": description,
         "untrusted_findings": [
@@ -152,6 +179,12 @@ def _complaint_payload(
             for index, (name, item) in enumerate(catalogue)
         ],
     }
+    if photo_catalogue:
+        payload["untrusted_photo_findings"] = [
+            {"id": index, **finding.model_dump(mode="json")}
+            for index, finding in photo_catalogue.items()
+        ]
+    return payload
 
 
 def assess_complaint(
@@ -163,6 +196,7 @@ def assess_complaint(
     model: str | None = None,
     client: VisionClient | None = None,
     cache_dir: Path | None = None,
+    photo_catalogue: dict[int, PhotoComplaintFinding] | None = None,
 ) -> ComplaintAssessment:
     """Use the complaint only after visual comparison and separate text review.
 
@@ -187,7 +221,7 @@ def assess_complaint(
         if (check := comparisons.get(name)) is not None and check.status != "unclear"
         for finding in check.findings[:MAX_FINDINGS_PER_CHECK]
     ]
-    payload = _complaint_payload(claim_type, description, catalogue)
+    payload = _complaint_payload(claim_type, description, catalogue, photo_catalogue)
     selected_model = model or get_secret("OPENAI_MODEL")
     if not selected_model:
         return fallback
@@ -199,4 +233,8 @@ def assess_complaint(
         client=client,
         cache_dir=cache_dir,
     )
-    return fallback if selection is None else _resolve(selection, kinds, catalogue)
+    return (
+        fallback
+        if selection is None
+        else _resolve(selection, kinds, catalogue, photo_catalogue or {})
+    )
