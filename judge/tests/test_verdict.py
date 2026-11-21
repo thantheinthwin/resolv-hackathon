@@ -159,5 +159,7 @@ def test_warm_light_caps_variant_only() -> None:
     checks = {"listing": comparison("pass", 1), "variant": comparison("flag", 0.98)}
     verdict = review("wrong_item", checks, quality=quality)
     assert (verdict.display, verdict.leaning, verdict.confidence) == ("unsure", "buyer", 0.70)
+    assert verdict.checks["variant"].confidence == 0.70
+    assert checks["variant"].confidence == 0.98
     checks["listing"] = comparison("flag", 0.98)
     assert review("wrong_item", checks, quality=quality).verdict == "buyer_right"
