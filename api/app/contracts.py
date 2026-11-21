@@ -141,13 +141,24 @@ class ProgressEvent(Contract):
     step: str | None = None
 
 
-class Case(Contract):
+class CaseReference(Contract):
+    order_id: str | None = None
+    listing_id: str | None = None
+
+    @model_validator(mode="after")
+    def exactly_one_reference(self) -> Self:
+        if (self.order_id is None) == (self.listing_id is None):
+            raise ValueError("Provide one order or product reference.")
+        return self
+
+
+class Case(CaseReference):
     id: str
-    order_id: str
     claim_type: ClaimType
     description: str
     status: CaseStatus
     created_at: datetime
+    buyer_photo_count: int = Field(default=0, ge=0, le=3)
     video_url: str | None = None
     verdict: Verdict | None = None
     decision: Decision | None = None

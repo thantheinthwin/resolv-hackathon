@@ -183,16 +183,19 @@ try {
   assert.equal((await api("listings")).status, 200);
   await p.getByRole("button", { name: /Unboxing Judge/ }).click();
   await p.getByText("Continue as buyer").click();
-  await p.getByText("Use an existing order", { exact: true }).click();
-  await p.getByText("Report a problem").click();
-  await p.getByRole("radio", { name: "Damaged item" }).click();
-  await p.getByText("Continue to video").click();
+  await p
+    .getByLabel("Product link", { exact: true })
+    .fill(new URL("/products/LS-101", p.url()).href);
+  await p.getByRole("button", { name: "Find my item" }).click();
+  await p.getByText("Yes, this is my item").click();
+  await p.getByRole("radio", { name: "My item arrived damaged" }).click();
+  await p.getByText("Next: add a video").click();
   await p.evaluate(() => {
     XMLHttpRequest.prototype.send = function () {
       window.reviewUpload = this;
     };
   });
-  await p.locator("input[type=file]").setInputFiles(join(dir, "white5.mp4"));
+  await p.locator('input[accept="video/*"]').setInputFiles(join(dir, "white5.mp4"));
   await p.getByRole("button", { name: "Send to the shop" }).click();
   const bar = p.getByRole("progressbar");
   await bar.waitFor();

@@ -85,23 +85,26 @@ try {
       timeout: 12000,
     });
   await page.getByText("Continue as buyer").click();
-  await page.getByText("Use an existing order", { exact: true }).click();
-  await page.getByText("Report a problem").waitFor();
+  await page
+    .getByLabel("Product link", { exact: true })
+    .fill(new URL("/products/LS-101", page.url()).href);
+  await page.getByRole("button", { name: "Find my item" }).click();
+  await page.getByText("Yes, this is my item").waitFor();
   const frameBaseline = await measureClaimFrame(page);
   const frameBody = page.locator(".claim-frame-body");
   const initialBody = await frameBody.elementHandle();
   await shot();
-  await page.getByText("Report a problem").click();
-  await page.getByRole("heading", { name: "Tell us what went wrong." }).waitFor();
+  await page.getByText("Yes, this is my item").click();
+  await page.getByRole("heading", { name: "What happened?" }).waitFor();
   assert.equal(await frameBody.evaluate((body, previous) => body === previous, initialBody), true);
   await initialBody.dispose();
   assert.equal(await page.getByRole("radio", { checked: true }).count(), 0);
-  assert.equal(await page.getByRole("button", { name: "Continue to video" }).isDisabled(), true);
-  await page.getByRole("radio", { name: "Wrong item, color, or size" }).click();
+  assert.equal(await page.getByRole("button", { name: "Next: add a video" }).isDisabled(), true);
+  await page.getByRole("radio", { name: "I received the wrong item, colour or size" }).click();
   await page.locator("textarea").fill("The colour looks different from my order.");
   await assertStableFrame(page, frameBaseline, "Complaint");
   await shot();
-  await page.getByText("Continue to video").click();
+  await page.getByText("Next: add a video").click();
   await page.getByRole("heading", { name: "Add your unboxing video." }).waitFor();
   await assertStableFrame(page, frameBaseline, "Video");
   await page.reload();
@@ -122,9 +125,9 @@ try {
   await page.locator('[data-upload-dropzone][data-dragging="true"]').waitFor({ state: "detached" });
   await dragged.dispose();
   await dropFiles(page, dropzone, [{ name: "notes.txt", type: "text/plain" }]);
-  await page.getByText("Choose a video file.").waitFor();
+  await page.getByText("Choose one video and up to three JPEG, PNG or WebP photos.").waitFor();
   await dropFiles(page, dropzone, [corrupt, { ...corrupt, name: "second.mp4" }]);
-  await page.getByText("Choose one video at a time.").waitFor();
+  await page.getByText("Choose one video and up to three JPEG, PNG or WebP photos.").waitFor();
   assert.equal(await page.getByRole("button", { name: "Send to the shop" }).count(), 0);
 
   const created = page.waitForResponse(
@@ -150,7 +153,7 @@ try {
   await page.getByLabel("Selected video preview").waitFor();
   await page.getByRole("button", { name: "Replace video" }).waitFor();
   await dropFiles(page, dropzone, [{ name: "notes.txt", type: "text/plain" }]);
-  await page.getByText("Choose a video file.").waitFor();
+  await page.getByText("Choose one video and up to three JPEG, PNG or WebP photos.").waitFor();
   await page.getByLabel("Selected video preview").waitFor();
   await dropFiles(page, dropzone, [
     {

@@ -148,7 +148,7 @@ export function Review({
           <small>{item.order_id ? "Ordered" : "Referenced product"}</small>
           <h2>{title}</h2>
           <p>
-            {item.order_id !== undefined
+            {item.order_id != null
               ? "Order " + item.order_id
               : "Product reference " + item.listing_id.slice(0, 8)}
           </p>
@@ -174,6 +174,30 @@ export function Review({
             />
           ) : (
             <p className="empty-state">Video unavailable for this case.</p>
+          )}
+          {Boolean(item.buyer_photo_count) && (
+            <section aria-label="Buyer photos">
+              <h3>Photos from the shopper</h3>
+              {Array.from({ length: item.buyer_photo_count ?? 0 }, (_, i) => (
+                <figure key={i}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    style={{ maxWidth: "100%" }}
+                    src={`/api/shop/cases/${item.id}/photos/${i}`}
+                    alt={"Shopper photo " + (i + 1)}
+                  />
+                  <figcaption>
+                    {item.photo_findings
+                      ?.filter((finding) => finding.photo.startsWith("buyer-photos/" + i + "-"))
+                      .map((finding, n) => (
+                        <p key={n}>
+                          {finding.note_en} <span lang="th">{finding.note_th}</span>
+                        </p>
+                      ))}
+                  </figcaption>
+                </figure>
+              ))}
+            </section>
           )}
           {activeFinding?.evidence?.frame && (
             <div className="comparison">

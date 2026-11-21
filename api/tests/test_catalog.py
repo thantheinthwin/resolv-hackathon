@@ -100,7 +100,10 @@ def test_migrate_pr17_catalog_with_photos_and_existing_case(
         assert orders[1]["listing"] == product.model_dump(mode="json")
         assert orders[1]["variant"] == {"color": "", "size": ""}
         assert client.get(product.photos[0]).content == photo
-        assert client.get(f"/api/shop/cases/{case.id}").json() == case.model_dump(mode="json")
+        assert client.get(f"/api/shop/cases/{case.id}").json() == {
+            **case.model_dump(mode="json"),
+            "photo_findings": [],
+        }
         assert (
             client.post(
                 "/api/cases", json={"order_id": orders[1]["id"], "claim_type": "wrong_item"}

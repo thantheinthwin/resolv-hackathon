@@ -33,6 +33,9 @@ function database() {
     "CREATE TABLE IF NOT EXISTS records (id TEXT PRIMARY KEY, kind TEXT, value TEXT); CREATE TABLE IF NOT EXISTS tokens (token TEXT PRIMARY KEY, id TEXT)",
   );
   db.exec("CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, expires INTEGER NOT NULL)");
+  db.exec(
+    "CREATE TABLE IF NOT EXISTS claim_photos (case_id TEXT, position INTEGER, image BLOB, PRIMARY KEY(case_id,position))",
+  );
   // Recover abandoned reservations even when the next request is a read or SSE reconnect.
   db.exec("BEGIN IMMEDIATE");
   try {
@@ -284,6 +287,7 @@ export async function sample(req: Request, parts: string[]) {
         claim_type: b.claim_type as Claim,
         description: typeof b.description === "string" ? b.description : "",
         status: "awaiting_video",
+        buyer_photo_count: 0,
         created_at: new Date().toISOString(),
       };
       save(c.id, "case", c);
@@ -320,6 +324,7 @@ export async function sample(req: Request, parts: string[]) {
           rmSync(path.join(dir, file), { force: true });
           db.prepare("DELETE FROM records WHERE kind='file' AND id=?").run(file);
         }
+        db.prepare("DELETE FROM claim_photos WHERE case_id=?").run(id);
         rmSync(path.join(dir, id), { force: true, recursive: true });
         db.prepare("DELETE FROM tokens WHERE id=?").run(id);
         db.prepare("DELETE FROM records WHERE id=? AND kind='case'").run(id);
@@ -332,6 +337,20 @@ export async function sample(req: Request, parts: string[]) {
     }
     if (area === "shop") {
       if (req.method === "GET") {
+        if (parts[3] === "photos") {
+          const row = db
+            .prepare("SELECT image FROM claim_photos WHERE case_id=? AND position=?")
+            .get(id, Number(parts[4]));
+          return row?.image instanceof Uint8Array
+            ? new Response(new Uint8Array(row.image), {
+                headers: {
+                  "Content-Type": "image/jpeg",
+                  "Cache-Control": "no-store",
+                  "X-Content-Type-Options": "nosniff",
+                },
+              })
+            : fail("Photo not found.", 404);
+        }
         if (c.decision && typeof c.decision.note_for_buyer !== "string")
           c.decision.note_for_buyer = null;
         return reply(c);
@@ -413,6 +432,29 @@ export async function sample(req: Request, parts: string[]) {
       if (!form) return fail("Attach a video file.");
       const v = form.get("video") ?? form.get("file");
       if (!(v instanceof File) || v.size > 50000000) return fail("Choose a video up to 50 MB.");
+      const photos = form.getAll("photos");
+      if (
+        form.getAll("video").length + form.getAll("file").length !== 1 ||
+        [...form.keys()].some((key) => !["video", "file", "photos"].includes(key)) ||
+        photos.length > 3 ||
+        !photos.every((p): p is File => p instanceof File && p.size <= 10_000_000) ||
+        photos.reduce((sum, p) => sum + p.size, v.size) > 50_000_000
+      )
+        return fail(
+          "Choose one video and up to three photos, up to 50 MB combined and 10 MB per photo.",
+        );
+      const previews: Buffer[] = [];
+      for (const photo of photos) {
+        const tmp = path.join(dir, randomUUID());
+        try {
+          await writeFile(tmp, Buffer.from(await photo.arrayBuffer()));
+          const checked = JSON.parse((await worker("claim-photo", tmp)).stdout);
+          if (!checked.mime) return fail(checked.error || "Choose a readable photo.");
+          previews.push(await readFile(tmp));
+        } finally {
+          await rm(tmp, { force: true });
+        }
+      }
       const file = randomUUID(),
         location = path.join(dir, file);
       await writeFile(location, Buffer.from(await v.arrayBuffer()));
@@ -469,6 +511,9 @@ export async function sample(req: Request, parts: string[]) {
           db.exec("ROLLBACK");
           return rejectFile("Case unavailable or video already received.", 409);
         }
+        c.buyer_photo_count = previews.length;
+        for (const [i, image] of previews.entries())
+          db.prepare("INSERT INTO claim_photos VALUES(?,?,?)").run(id, i, image);
         c.status = "checking";
         c.video_url = "/api/files/" + file;
         c.progress = [{ event: "started", step: "scaffold" }];

@@ -49,7 +49,7 @@ REHEARSAL_URL to its localhost URL. Run these commands in order:
    seller case list with iPhone and Android screen profiles in Chrome. Install
    Playwright WebKit and set `PHONE_WEBKIT=1` to run the iPhone profile in WebKit.
 5. `node scripts/product-flow.mjs` checks the product wizard, role switches,
-   shared claim links, catalogue search, draft replacement, original video
+   public product links, item confirmation, mixed uploads, original video
    playback, and the product-scoped case sidebar at desktop and phone widths.
 
 Set `INTEGRATED_REHEARSAL_URL` and `INTEGRATED_REHEARSAL_PASSCODE` for a web instance
@@ -63,19 +63,9 @@ mobile rehearsal used iPhone and Android profiles in Chrome.
 
 ## One-page sample walkthrough
 
-From the shop product page, select **Copy claim link** and open it on any
-browser that can reach the sample server. In **Find your product**, buyers can
-paste the link for an exact match or type a name, variant, or reference for
-ranked suggestions. Confirming a product opens the claim fields in the same
-section. **Use an existing order** opens the order-based path. **My reports** on the same page includes
-the buyer's description, original video, status, and shop reply.
+Each shop item has a shop detail page at `/shop/products/[id]` and a public page at `/products/[id]`. Choose **Copy product link** in the shop. A shopper pastes it into **Product link**, chooses **Find my item**, confirms the item, and describes what happened. **Report a problem** on the public page also opens that confirmation.
 
-The sample store uses one shared demo buyer. Use sandbox data and rehearsal
-clips. Standalone claims follow the exact listing ID, and order-based claims
-follow their order's listing ID. Open a claim from a product to see that
-product's case list, or from the inbox to see all submitted cases. The
-integrated API supports catalogue creation and order-based claims. Standalone
-claim intake and authenticated buyer playback are integration follow-ups.
+The shopper attaches one unboxing video and optionally up to three photos on desktop or phone. Shop review shows the video and photos together. Existing order-backed cases retain their purchase details. Product-link claims reference the catalog item only. Sample mode uses a shared demo buyer and fixture verdicts.
 
 ## Mobile redesign handoff
 
@@ -83,5 +73,4 @@ claim intake and authenticated buyer playback are integration follow-ups.
   and edit the text, then submit the report. Agree on Thai and English support, microphone
   permission handling, and how audio is processed and retained. The optional description field
   also accepts the phone keyboard’s dictation where available.
-- **Photo evidence** is a follow-up for buyers who have already opened the parcel. It needs an API
-  path for attaching photos and a manual review workflow for cases without video.
+- Photo-only claims remain a follow-up.

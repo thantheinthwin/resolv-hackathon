@@ -21,19 +21,24 @@ import {
   deleteReport,
   ensureDraftCase,
   rememberReceipt,
-  summarizeOrder,
   useBuyerSession,
   videoReceived,
   type ClaimTarget,
   type Draft,
   type OrderSummary,
 } from "../lib/buyer-session";
-import { claims, type Claim, type Order, type Report, type UploadLink } from "../lib/models";
+import { claims, type Claim, type Report, type UploadLink } from "../lib/models";
 import { ClaimProduct, ProductReference } from "./claim-product";
 import { DeskShell } from "./desk-shell";
 import { ReportEvidence } from "./report-evidence";
 import { Uploader } from "./uploader";
 
+const shopperLabels: Record<Claim, string> = {
+  wrong_item: "I received the wrong item, colour or size",
+  missing: "Something was missing",
+  damaged: "My item arrived damaged",
+  counterfeit: "I think my item might be a fake",
+};
 const guidance: Record<Claim, { example: string; prompt: string; video: string }> = {
   wrong_item: {
     example: "You ordered a medium, but a large arrived.",
@@ -104,9 +109,9 @@ function ClaimContext({ target }: { target: ClaimTarget }) {
 
 function Steps({ current }: { current: "workspace" | "complaint" | "video" | "sent" }) {
   const steps = [
-    ["workspace", "Product"],
-    ["complaint", "Problem"],
-    ["video", "Video"],
+    ["workspace", "Your item"],
+    ["complaint", "What happened"],
+    ["video", "Your video"],
     ["sent", "Sent"],
   ];
   const index = steps.findIndex(([step]) => step === current);
@@ -176,9 +181,7 @@ export function BuyerDesk({
     failed: boolean;
     warning: string;
   }>();
-  const [orders, setOrders] = useState<Order[]>();
   const [reports, setReports] = useState<Report[]>();
-  const [orderError, setOrderError] = useState(false);
   const [reportError, setReportError] = useState(false);
   const [deletionError, setDeletionError] = useState<{ target: string; message: string }>();
   const [error, setError] = useState("");
@@ -202,24 +205,6 @@ export function BuyerDesk({
   useLayoutEffect(() => {
     if (frameBody.current) frameBody.current.scrollTop = 0;
   }, [view]);
-
-  useEffect(() => {
-    let active = true;
-    api<Order[]>("orders").then(
-      (result) => {
-        if (active) {
-          setOrders(result);
-          setOrderError(false);
-        }
-      },
-      () => {
-        if (active) setOrderError(true);
-      },
-    );
-    return () => {
-      active = false;
-    };
-  }, [refresh]);
 
   useEffect(() => {
     let active = true;
@@ -408,15 +393,15 @@ export function BuyerDesk({
           }
         }}
       >
-        Start a claim
+        Report a problem
       </a>
       <a href="#my-reports">My reports</a>
     </>
   );
 
   const frameTitle = {
-    workspace: "Choose a product or order",
-    complaint: "Tell us what went wrong",
+    workspace: "Which item do you need help with?",
+    complaint: "What happened?",
     video: "Add your unboxing video",
     sent: receipt?.failed ? "Video received. Checking failed" : "Sent to the shop",
   }[view];
@@ -427,7 +412,7 @@ export function BuyerDesk({
     <DeskShell role="Buyer" view={view} navigation={navigation} navigationBlocked={sending}>
       <section id="start-a-claim" className="claim-workspace" aria-labelledby="claim-title">
         <h1 id="claim-title" tabIndex={-1}>
-          Start a claim<span className="heading-period">.</span>
+          Report a problem<span className="heading-period">.</span>
         </h1>
         <Steps current={view} />
         <div className="panel claim-frame">
@@ -440,7 +425,7 @@ export function BuyerDesk({
               data-step-heading
             >
               {frameTitle}
-              <span className="heading-period">.</span>
+              {!frameTitle.endsWith("?") && <span className="heading-period">.</span>}
             </h2>
             {view === "sent" && !receipt?.failed && <CircleCheck aria-hidden />}
           </header>
@@ -463,7 +448,7 @@ export function BuyerDesk({
                       setStep(undefined);
                     }}
                   >
-                    {draft?.order ? "Change order" : "Change product"}
+                    {draft?.order ? "Change order" : "Choose a different item"}
                   </Button>
                 )}
                 {badgeClaim && <Badge variant="secondary">{claims[badgeClaim]}</Badge>}
@@ -481,44 +466,13 @@ export function BuyerDesk({
                   </a>
                 </div>
               )}
-              {sampleMode && (
-                <ClaimProduct
-                  key={receipt?.id ?? linkedProduct}
-                  linkedProduct={linkedProduct}
-                  busy={deleting}
-                  onConfirm={(listing) => void newReport({ listing })}
-                />
-              )}
-              <details className="claim-existing-orders" open={!sampleMode || undefined}>
-                <summary>Use an existing order</summary>
-                {orderError ? (
-                  <div className="action-row" role="status">
-                    Couldn’t load your orders.
-                    <Button variant="outline" onClick={() => setRefresh((value) => value + 1)}>
-                      Try again
-                    </Button>
-                  </div>
-                ) : !orders ? (
-                  <p role="status">Loading your orders…</p>
-                ) : (
-                  orders.length === 0 && (
-                    <p className="muted-copy">Delivered orders will appear here.</p>
-                  )
-                )}
-                <ul className="order-list">
-                  {orders?.map(summarizeOrder).map((order) => (
-                    <li className="order-row" key={order.id}>
-                      <div className="order-context">
-                        <OrderDetails order={order} />
-                      </div>
-                      <Button disabled={deleting} onClick={() => void newReport({ order })}>
-                        {draft?.order?.id === order.id ? "Resume report" : "Report a problem"}{" "}
-                        <ArrowRight aria-hidden />
-                      </Button>
-                    </li>
-                  ))}
-                </ul>
-              </details>
+
+              <ClaimProduct
+                key={receipt?.id ?? linkedProduct}
+                linkedProduct={linkedProduct}
+                busy={deleting}
+                onConfirm={(listing) => void newReport({ listing })}
+              />
             </div>
             {view === "complaint" && draft && (
               <form
@@ -547,7 +501,7 @@ export function BuyerDesk({
                         aria-describedby={"example-" + id}
                       />
                       <span>
-                        <strong id={"claim-" + id}>{claims[id]}</strong>
+                        <strong id={"claim-" + id}>{shopperLabels[id]}</strong>
                         <span id={"example-" + id}>{guidance[id].example}</span>
                       </span>
                     </label>
@@ -636,7 +590,7 @@ export function BuyerDesk({
           <div className="claim-frame-actions" ref={setFrameActions}>
             {view === "complaint" && (
               <Button type="submit" form="claim-problem" disabled={!claim}>
-                Continue to video <ArrowRight aria-hidden />
+                Next: add a video <ArrowRight aria-hidden />
               </Button>
             )}
             {view === "video" && !caseId && (
@@ -649,7 +603,7 @@ export function BuyerDesk({
                   setStep("complaint");
                 }}
               >
-                <ArrowLeft aria-hidden /> Back to the claim
+                <ArrowLeft aria-hidden /> Back to what happened
               </Button>
             )}
             {view === "sent" && (

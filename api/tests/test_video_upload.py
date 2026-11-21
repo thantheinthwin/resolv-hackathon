@@ -10,7 +10,10 @@ from api.app.fake import FakeJudge
 from api.main import create_app
 
 
-def test_video_survives_restart(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("mixed", [False, True])
+def test_video_survives_restart(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mixed: bool
+) -> None:
     recording = tmp_path / "source.mp4"
     subprocess.run(
         [
@@ -44,11 +47,20 @@ def test_video_survives_restart(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     db_dir = tmp_path / "data"
     with TestClient(create_app(db_dir, PausedJudge()), headers=headers) as client:
         case_id = client.post(
-            "/api/cases", json={"order_id": "UJ-48213", "claim_type": "damaged"}
+            "/api/cases",
+            json={
+                **({"listing_id": "LS-101"} if mixed else {"order_id": "UJ-48213"}),
+                "claim_type": "damaged",
+            },
         ).json()["id"]
         case_url = f"/api/cases/{case_id}"
         video_url = case_url + "/video"
         files = {"video": ("video.mp4", payload, "video/mp4")}
+        if mixed:
+            image = Path(__file__).parents[1] / "fixtures" / "tee.png"
+            bad = {**files, "photos": ("invalid.png", b"invalid", "image/png")}
+            assert client.post(video_url, files=bad).status_code == 422
+            files["photos"] = ("item.png", image.read_bytes(), "image/png")
         try:
             result = client.post(video_url, files=files)
             assert result.status_code == 202, result.text
@@ -71,6 +83,13 @@ def test_video_survives_restart(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     with TestClient(create_app(db_dir), headers=headers) as client:
         shop = client.get(f"/api/shop/cases/{case_id}").json()
         assert shop["status"] == "ready" and shop["verdict"]["case_id"] == case_id
+        if mixed:
+            assert shop["listing_id"] == "LS-101" and shop["order_id"] is None
+            assert shop["buyer_photo_count"] == 1
+            preview = client.get(f"/api/shop/cases/{case_id}/photos/0")
+            assert preview.status_code == 200 and preview.headers["content-type"] == "image/jpeg"
+            assert client.get(f"/api/files/cases/{case_id}/private-photos/0.png").status_code == 404
+            assert client.get(f"/api/shop/cases/{case_id}/photos/1").status_code == 404
         video = client.get(shop["video_url"])
         assert video.content == payload and video.headers["content-type"] == "video/mp4"
         assert client.delete(case_url).status_code == 204

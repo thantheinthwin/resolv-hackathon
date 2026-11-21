@@ -1,14 +1,13 @@
 from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, Field, StringConstraints
 
-from api.app.contracts import Case, CaseStatus, ClaimType, Display
+from judge.submission import PhotoFinding
+from api.app.contracts import Case, CaseReference, CaseStatus, ClaimType, Display
 
 
-class CreateCase(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    order_id: str
+class CreateCase(CaseReference):
     claim_type: ClaimType
     description: str = ""
 
@@ -39,10 +38,9 @@ def buyer_view(case: Case) -> BuyerCase:
     )
 
 
-class ShopSummary(BaseModel):
+class ShopSummary(CaseReference):
     id: str
     product: str
-    order_id: str
     claim_type: ClaimType
     status: CaseStatus
     verdict: Literal["buyer_right", "seller_right", "needs_human"] | None
@@ -66,8 +64,13 @@ class ErrorDetail(BaseModel):
     detail: str
 
 
+class ShopCase(Case):
+    photo_findings: list[PhotoFinding] = Field(default_factory=list)
+
+
 class VideoForm(BaseModel):
     video: bytes
+    photos: list[bytes] = Field(default_factory=list, max_length=3)
 
 
 class ListingForm(BaseModel):

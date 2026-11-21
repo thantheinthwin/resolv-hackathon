@@ -24,14 +24,14 @@ try {
       device: "iPhone 13",
       name: safari ? "iPhone WebKit" : "iPhone Chromium emulation",
       colorScheme: "light",
-      claim: "Missing items or parts",
+      claim: "Something was missing",
     },
     {
       browser: android,
       device: "Pixel 7",
       name: "Android",
       colorScheme: "dark",
-      claim: "Suspected counterfeit",
+      claim: "I think my item might be a fake",
     },
   ]) {
     const page = await browser.newPage({
@@ -52,15 +52,18 @@ try {
       );
     }
     await page.getByRole("link", { name: "Continue as buyer" }).click();
-    await page.getByText("Use an existing order", { exact: true }).click();
-    const order = page.getByRole("button", { name: "Report a problem" });
+    await page
+      .getByLabel("Product link", { exact: true })
+      .fill(new URL("/products/LS-101", page.url()).href);
+    await page.getByRole("button", { name: "Find my item" }).click();
+    const order = page.getByRole("button", { name: "Yes, this is my item" });
     await order.waitFor();
     await assertFits(page);
     await order.click();
     await page.getByRole("radio", { name: claim }).click();
     const description = `${name} test report`;
     await page.locator("textarea").fill(description);
-    await page.getByRole("button", { name: "Continue to video" }).click();
+    await page.getByRole("button", { name: "Next: add a video" }).click();
     await page.getByRole("link", { name: "My reports" }).click();
     await page.waitForURL("**/orders#my-reports");
     await page.reload();

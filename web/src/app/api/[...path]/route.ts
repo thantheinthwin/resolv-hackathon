@@ -5,7 +5,7 @@ import { integratedAccessError } from "../../../lib/integrated-access";
 export const dynamic = "force-dynamic";
 const pathRules: Record<string, RegExp> = {
   DELETE: /^cases\/[\w-]+$/,
-  GET: /^(orders|my\/cases|cases\/[\w-]+(?:\/events)?|shop\/cases(?:\/[\w-]+)?|listings|files\/[\w./-]+)$/,
+  GET: /^(orders|my\/cases|cases\/[\w-]+(?:\/events)?|shop\/cases(?:\/[\w-]+(?:\/photos\/[0-2])?)?|listings|files\/[\w./-]+)$/,
   POST: /^(cases|cases\/[\w-]+\/(video|upload-link)|uploads\/[\w-]+|shop\/cases\/[\w-]+\/decision|listings)$/,
 };
 async function handle(req: Request, ctx: { params: Promise<{ path: string[] }> }) {
@@ -58,6 +58,7 @@ async function handle(req: Request, ctx: { params: Promise<{ path: string[] }> }
     const out = new Headers();
     for (const key of [
       "content-type",
+      "cache-control",
       "content-range",
       "accept-ranges",
       "x-content-type-options",

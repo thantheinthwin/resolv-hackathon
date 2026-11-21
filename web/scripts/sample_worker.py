@@ -6,7 +6,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from fastapi import HTTPException
 
-from api.app.listings import photo_format
+from api.app.listings import photo_format, photo_preview
 from judge import run
 from judge.intake import IntakeError, inspect_video
 
@@ -26,6 +26,14 @@ def main(operation: str, value: str) -> None:
             print(json.dumps({"error": exc.detail}))
         else:
             print(json.dumps({"mime": mime}))
+    elif operation == "claim-photo":
+        try:
+            path = Path(value)
+            path.write_bytes(photo_preview(path.read_bytes()))
+        except HTTPException as exc:
+            print(json.dumps({"error": exc.detail}))
+        else:
+            print(json.dumps({"mime": "image/jpeg"}))
     elif operation == "judge":
         # Publish the result only if the owning case still exists.
         with TemporaryDirectory() as scratch:

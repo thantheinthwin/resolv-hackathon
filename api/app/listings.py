@@ -49,6 +49,19 @@ def photo_format(data: bytes) -> tuple[str, str]:
         raise HTTPException(422, "Use a readable JPEG, PNG, or WebP product photo.") from exc
 
 
+def photo_preview(data: bytes) -> bytes:
+    """Create a metadata-free, bounded image for shop-side human review."""
+    from PIL import ImageOps
+
+    photo_format(data)
+    with Image.open(BytesIO(data)) as source:
+        source.thumbnail((1600, 1600))
+        image = ImageOps.exif_transpose(source).convert("RGB")
+        output = BytesIO()
+        image.save(output, format="JPEG")
+        return output.getvalue()
+
+
 def save_listing(store: Store, form: FormData) -> Listing:
     images = []
     for upload in form.getlist("photos"):

@@ -1,8 +1,4 @@
-import { connection } from "next/server";
-import { apiOrigin } from "../../lib/api-origin";
 import { ShopDesk } from "../shop-desk";
-
-export default async function Shop() {
-  await connection();
-  return <ShopDesk sampleMode={!apiOrigin()} />;
+export default async function Shop({ searchParams }: { searchParams: Promise<{ view?: string }> }) {
+  return <ShopDesk showProducts={(await searchParams).view === "products"} />;
 }
