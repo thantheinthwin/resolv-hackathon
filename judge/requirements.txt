@@ -1,0 +1,4 @@
+# Python 3.12 judge runtime. FFmpeg/ffprobe are separate system dependencies.
+numpy>=1.26,<3
+opencv-python-headless>=4.10,<5
+pydantic>=2.8,<3
