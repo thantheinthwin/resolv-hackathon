@@ -196,3 +196,28 @@ def test_nonmatching_two_character_ocr_errors_are_flagged() -> None:
         steady_frames(), expected_order_id="UJ-48213", observation=opening(code="UJ-482BB")
     )
     assert report.checks["label"].status == "flag"
+
+
+def test_report_validates_against_shared_verdict_contract() -> None:
+    from api.app.contracts import Verdict
+
+    report = assess_integrity(
+        steady_frames(),
+        expected_order_id="UJ-48213",
+        observation=opening(seal="opened", code="UJ-98765"),
+    )
+    verdict = Verdict.model_validate({
+        "case_id": "UJ-48213",
+        "verdict": "needs_human",
+        "display": "unsure",
+        "leaning": "none",
+        "confidence": 0.0,
+        "flags": [item.model_dump() for item in report.flags],
+        "checks": {key: item.model_dump() for key, item in report.checks.items()},
+        "evidence": [],
+        "reason": {"en": "Needs human review.", "th": "ต้องให้เจ้าหน้าที่ตรวจสอบ"},
+        "steps": [],
+    })
+    assert verdict.display == "unsure"
+    assert len(verdict.flags) == 2
+    assert "label" in verdict.checks
