@@ -258,7 +258,9 @@ try {
     hasTouch: true,
   });
   await phone.goto("/");
-  await phone.getByRole("link", { name: "Browse products" }).click();
+  assert.equal(await phone.getByRole("link", { name: "Browse products" }).count(), 0);
+  await phone.getByRole("link", { name: "Continue as buyer" }).click();
+  await phone.getByRole("searchbox", { name: "Search products" }).fill(duplicateColor);
   await phone.getByRole("link", { name: new RegExp(duplicateColor) }).click();
   await phone.waitForURL(claimLink.href);
   assert.equal(await phone.getByRole("button", { name: "Copy product link" }).count(), 0);
