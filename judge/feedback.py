@@ -48,7 +48,8 @@ class FeedbackState:
     opening_review_pending: bool = False
     complaint_review_pending: bool = False
     failed_comparisons: set[str] = field(default_factory=set)
-    complaint_evidence: set[tuple[str, float]] | None = None
+    complaint_support: set[tuple[str, float]] | None = None
+    complaint_has_variant_candidates: bool = False
 
 
 class ComplaintFeedback(BaseModel):
@@ -156,6 +157,12 @@ def build_complaint_feedback(
             "The product comparison could not be completed. The shop needs to review the case.",
             "ไม่สามารถเปรียบเทียบสินค้าได้สำเร็จ ร้านค้าต้องตรวจสอบกรณีนี้",
         )
+    if check_name == "variant" and state.complaint_has_variant_candidates:
+        return _feedback(
+            "needs_human_check",
+            "The shop needs to confirm that the variant finding shows the specific color or size reported.",
+            "ร้านค้าต้องยืนยันว่าหลักฐานตัวเลือกสินค้าแสดงสีหรือขนาดที่ผู้ซื้อแจ้ง",
+        )
     en_label, th_label = CHECK_LABELS[check_name]
     if verdict.verdict == "seller_right":
         return _feedback(
@@ -171,8 +178,8 @@ def build_complaint_feedback(
                 and evidence.result == "flag"
                 and evidence.t in times
                 and (
-                    state.complaint_evidence is None
-                    or (evidence.check, evidence.t) in state.complaint_evidence
+                    state.complaint_support is None
+                    or (evidence.check, evidence.t) in state.complaint_support
                 )
             ):
                 return _feedback(

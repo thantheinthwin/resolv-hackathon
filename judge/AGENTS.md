@@ -126,7 +126,8 @@ For new submissions, present the `feedback.result` and its bilingual
 `feedback.reason` as the complaint recommendation. `complaint_supported`
 requires a clear buyer-side verdict and an evidence pair at the exact
 timestamp of the deciding finding. A written complaint also needs a direct
-link to that finding. `needs_more_evidence` requests a specific
+link to a finding that directly supports the allegation. Written color or
+size allegations with an unverified variant finding go to the shop to confirm. `needs_more_evidence` requests a specific
 usable view, for example a close-up of the reported damage.
 `needs_human_check` handles integrity flags, counterfeit claims, pending
 privacy review, evidence that favors the shop, and inconclusive comparisons

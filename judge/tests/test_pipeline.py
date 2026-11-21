@@ -65,7 +65,13 @@ class FakeResponses:
         elif schema == "ComplaintSelection":
             result = {
                 "confidence": 0.96,
-                "allegations": [{"kind": "damage", "finding_ids": [int(self.extra_finding)]}],
+                "allegations": [
+                    {
+                        "kind": "damage",
+                        "finding_ids": [int(self.extra_finding)],
+                        "supporting_finding_ids": [int(self.extra_finding)],
+                    }
+                ],
             }
         else:
             assert schema == "ReasonSelection"
@@ -479,8 +485,9 @@ def test_run_requires_video_even_with_a_written_complaint(
         run(folder.parent / "no-video", inputs)
 
 
-def test_wrong_size_complaint_is_not_supported_by_a_color_mismatch(
-    case: tuple[Path, JudgeInputs, FakeResponses],
+@pytest.mark.parametrize("shows_size", [False, True])
+def test_written_variant_complaint_needs_a_directly_verified_attribute(
+    case: tuple[Path, JudgeInputs, FakeResponses], shows_size: bool
 ) -> None:
     folder, inputs, _ = case
 
@@ -506,7 +513,13 @@ def test_wrong_size_complaint_is_not_supported_by_a_color_mismatch(
             if schema == "ComplaintSelection":
                 response.output_parsed = {
                     "confidence": 0.98,
-                    "allegations": [{"kind": "size", "finding_ids": []}],
+                    "allegations": [
+                        {
+                            "kind": "size",
+                            "finding_ids": [0] if shows_size else [],
+                            "supporting_finding_ids": [0] if shows_size else [],
+                        }
+                    ],
                 }
             return response
 
@@ -520,5 +533,51 @@ def test_wrong_size_complaint_is_not_supported_by_a_color_mismatch(
 
     assert result.verdict.verdict == "buyer_right"
     assert result.feedback is not None
-    assert result.feedback.result == "needs_more_evidence"
+    assert result.feedback.result == ("needs_human_check" if shows_size else "needs_more_evidence")
+    if shows_size:
+        assert "confirm" in result.feedback.reason.en
     assert result.verdict.evidence[0].t == FINDING_TIME
+
+
+def test_a_contradicting_frame_cannot_support_a_written_complaint(
+    case: tuple[Path, JudgeInputs, FakeResponses],
+) -> None:
+    folder, inputs, _ = case
+
+    class ContradictingResponses(FakeResponses):
+        def parse(self, **kwargs: object) -> SimpleNamespace:
+            response = super().parse(**kwargs)
+            schema = kwargs["text_format"].__name__
+            if schema == "MatchResponse":
+                text = kwargs["input"][1]["content"][0]["text"]
+                if json.loads(text.splitlines()[0])["check"] == "damage":
+                    response.output_parsed["findings"] = [
+                        {"t": 3.1254, "note_en": "The screen is intact.", "note_th": "หน้าจอไม่แตก"},
+                        {
+                            "t": FINDING_TIME,
+                            "note_en": "The back is dented.",
+                            "note_th": "ด้านหลังบุบ",
+                        },
+                    ]
+            if schema == "ComplaintSelection":
+                response.output_parsed["allegations"] = [
+                    {
+                        "kind": "damage",
+                        "finding_ids": [0],
+                        "supporting_finding_ids": [],
+                    }
+                ]
+            return response
+
+    result = run_submission(
+        folder,
+        inputs.model_copy(update={"description": "My screen is cracked."}),
+        review=lambda _: True,
+        model="test-model",
+        client=SimpleNamespace(responses=ContradictingResponses()),
+    )
+
+    assert result.verdict.verdict == "buyer_right"
+    assert result.verdict.evidence[0].t == 3.1254
+    assert result.feedback is not None
+    assert result.feedback.result == "needs_more_evidence"

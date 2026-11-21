@@ -355,7 +355,14 @@ def run_uploaded_case(
         for reference in allegation.evidence
     }
     if feedback_state is not None and description.strip():
-        feedback_state.complaint_evidence = linked
+        feedback_state.complaint_support = {
+            (ref.check, ref.t)
+            for allegation in complaint.allegations
+            for ref in allegation.supporting_evidence
+        }
+        feedback_state.complaint_has_variant_candidates = any(
+            allegation.candidates for allegation in complaint.allegations
+        )
     with step("evidence", "code", "Paired exact frame times with reviewed listing photos"):
         evidence = build_evidence_pack(
             verdict.checks, frame_assets, listing_assets, privacy_approved=True
