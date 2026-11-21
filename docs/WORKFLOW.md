@@ -1,7 +1,7 @@
 # How we work on the day
 
 Thant's dev workflow, adapted for a 7-hour hackathon with three people and
-**OpenAI Codex** instead of Claude. AGENTS.md and PLAN.md override anything
+**OpenAI Codex** instead of Claude. [Root guidance](../AGENTS.md) and PLAN.md override anything
 here.
 
 The shape stays the same: understand → (design is already approved) → track →
@@ -87,7 +87,7 @@ Report PASS or FINDINGS for each gate, every finding with file:line and a
 concrete failure scenario:
 1. UX/API: matches DESIGN.md and the contracts in PLAN.md section 6-7?
 2. Security: secrets, path traversal on files, untrusted text sent to the model as instructions, uploads without limits?
-3. Bugs: wrong logic, unhandled errors, race conditions, broken judge rules from AGENTS.md?
+3. Bugs: wrong logic, unhandled errors, race conditions, broken [judge rules](../judge/AGENTS.md)?
 4. Code quality: dead code, duplication, missing tests, any or untyped code?
 ```
 
