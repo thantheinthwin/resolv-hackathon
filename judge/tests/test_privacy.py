@@ -17,9 +17,7 @@ from judge.sampling import SampledFrame
 
 
 class FakeDetector:
-    def __init__(
-        self, boxes: list[tuple[int, int, int, int]], *, fail: bool = False
-    ) -> None:
+    def __init__(self, boxes: list[tuple[int, int, int, int]], *, fail: bool = False) -> None:
         self.boxes = boxes
         self.fail = fail
         self.calls = 0
@@ -41,9 +39,7 @@ class FakeDetector:
 
 def frame(seed: int = 9, *, image: np.ndarray | None = None) -> SampledFrame:
     if image is None:
-        image = np.random.default_rng(seed).integers(
-            0, 256, size=(96, 96, 3), dtype=np.uint8
-        )
+        image = np.random.default_rng(seed).integers(0, 256, size=(96, 96, 3), dtype=np.uint8)
     return SampledFrame(
         timestamp_seconds=1.5,
         image=image,
@@ -77,9 +73,7 @@ def test_face_is_strongly_obscured_and_source_is_untouched() -> None:
 def test_multiple_faces_and_edge_padding() -> None:
     source = frame()
     original = source.image.copy()
-    result = sanitize_frame(
-        source, detector=FakeDetector([(0, 0, 22, 22), (68, 66, 28, 30)])
-    )
+    result = sanitize_frame(source, detector=FakeDetector([(0, 0, 22, 22), (68, 66, 28, 30)]))
     assert result.faces_redacted == 2
     assert not np.array_equal(result.image[0:22, 0:22], original[0:22, 0:22])
     assert not np.array_equal(result.image[66:96, 68:96], original[66:96, 68:96])
@@ -155,9 +149,7 @@ def test_batch_masks_timestamp_specific_region() -> None:
     result = sanitize_frames(
         source,
         detector=FakeDetector([]),
-        redactions_by_timestamp={
-            1.5: [RedactionRegion(x=0, y=0, width=10, height=10)]
-        },
+        redactions_by_timestamp={1.5: [RedactionRegion(x=0, y=0, width=10, height=10)]},
     )
     assert np.count_nonzero(result[0].image[:10, :10]) == 0
 
