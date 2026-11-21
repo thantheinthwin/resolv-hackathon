@@ -65,14 +65,13 @@ class JobRunner:
             with self.store.transaction() as db:
                 # This journal distinguishes a committed replacement (including one
                 # that subsequently failed judging) from a rolled-back upload.
-                db.execute("CREATE TABLE IF NOT EXISTS replaced_uploads (case_id TEXT PRIMARY KEY)")
                 retired = db.execute("SELECT case_id FROM replaced_uploads").fetchall()
                 for (case_id,) in retired:
                     backup = self._backup(case_id)
                     if backup.exists():
                         shutil.rmtree(backup)
                 db.execute("DELETE FROM replaced_uploads")
-                rows = db.execute("SELECT id, json_extract(body,'$.status') FROM cases").fetchall()
+                rows = db.execute("SELECT id, status FROM cases").fetchall()
             for case_id, status in rows:
                 folder = self._case_dir(case_id)
                 # A leftover backup without a journal entry belongs to an upload
@@ -124,7 +123,7 @@ class JobRunner:
                     case.progress = []
                     claim = db.execute(
                         "UPDATE cases SET body=? WHERE id=? AND "
-                        "json_extract(body, '$.status') IN ('awaiting_video','failed')",
+                        "status IN ('awaiting_video','failed')",
                         (case.model_dump_json(), case_id),
                     )
                     if claim.rowcount != 1:

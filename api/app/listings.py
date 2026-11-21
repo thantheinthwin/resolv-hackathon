@@ -9,6 +9,7 @@ from pydantic import ValidationError
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import FormData, UploadFile
 
+from api.app.catalog import create_reportable_product
 from api.app.contracts import Listing
 from api.app.multipart import bounded_form
 from api.app.sample import LISTING
@@ -27,8 +28,8 @@ PHOTO_FORMATS = {
 
 def catalog(store: Store) -> list[Listing]:
     with store.connection() as db:
-        rows = db.execute("SELECT body FROM listings ORDER BY rowid")
-        return [LISTING, *(Listing.model_validate_json(body) for (body,) in rows)]
+        rows = db.execute("SELECT body FROM products ORDER BY (id = ?) DESC, rowid", (LISTING.id,))
+        return [Listing.model_validate_json(body) for (body,) in rows]
 
 
 def photo_response(store: Store, path: str) -> Response:
@@ -86,9 +87,7 @@ def save_listing(store: Store, form: FormData) -> Listing:
         photos=[f"/api/files/{path}" for path, _, _ in photos],
     )
     with store.transaction() as db:
-        db.execute(
-            "INSERT INTO listings (id, body) VALUES (?, ?)", (listing_id, listing.model_dump_json())
-        )
+        create_reportable_product(db, listing)
         db.executemany("INSERT INTO listing_photos (path, mime, image) VALUES (?, ?, ?)", photos)
     return listing
 
