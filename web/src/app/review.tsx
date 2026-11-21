@@ -6,11 +6,11 @@ import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Textarea } from "../components/ui/textarea";
 import { Alert, AlertDescription } from "../components/ui/alert";
-import { claims, reasons, type Case } from "../lib/models";
+import { claims, reasons, type ShopCase } from "../lib/models";
 import { api, ApiError } from "../lib/client";
 
-type Verdict = NonNullable<Case["verdict"]>;
-type Decision = NonNullable<Case["decision"]>;
+type Verdict = NonNullable<ShopCase["verdict"]>;
+type Decision = NonNullable<ShopCase["decision"]>;
 const checkLabels: Record<string, string> = {
   seal: "Parcel seal",
   listing: "Listing match",
@@ -68,10 +68,10 @@ export function Review({
   next,
   openingNext,
 }: {
-  item: Case;
+  item: ShopCase;
   title: string;
   saved: boolean;
-  onDecision: (item: Case) => void;
+  onDecision: (item: ShopCase) => void;
   reload: () => Promise<void>;
   next?: () => void;
   openingNext: boolean;
@@ -112,11 +112,14 @@ export function Review({
     setBusy(true);
     setError("");
     try {
-      const updated = await api<Case>("shop/cases/" + encodeURIComponent(item.id) + "/decision", {
-        choice,
-        reason: choice === "disagree" ? reason : undefined,
-        note_for_buyer: note.trim(),
-      } satisfies Decision);
+      const updated = await api<ShopCase>(
+        "shop/cases/" + encodeURIComponent(item.id) + "/decision",
+        {
+          choice,
+          reason: choice === "disagree" ? reason : undefined,
+          note_for_buyer: note.trim(),
+        } satisfies Decision,
+      );
       onDecision(updated);
       requestAnimationFrame(() => savedMessage.current?.focus());
     } catch (error) {
@@ -140,14 +143,15 @@ export function Review({
 
   return (
     <>
-      <h1 tabIndex={-1}>
-        Review case<span className="heading-period">.</span>
-      </h1>
       <div className="case-context panel">
         <section>
-          <small>Ordered</small>
+          <small>{item.order_id ? "Ordered" : "Referenced product"}</small>
           <h2>{title}</h2>
-          <p>Order {item.order_id}</p>
+          <p>
+            {item.order_id !== undefined
+              ? "Order " + item.order_id
+              : "Product reference " + item.listing_id.slice(0, 8)}
+          </p>
         </section>
         <section>
           <small>Buyer reported</small>
@@ -272,10 +276,12 @@ export function Review({
             {item.decision.note_for_buyer?.trim() && (
               <p className="buyer-note">{item.decision.note_for_buyer}</p>
             )}
-            {(next || openingNext) && (
+            {next ? (
               <Button onClick={next} disabled={openingNext}>
                 Next case <ArrowRight aria-hidden />
               </Button>
+            ) : (
+              <p className="muted-copy">No more cases to review.</p>
             )}
           </>
         ) : (

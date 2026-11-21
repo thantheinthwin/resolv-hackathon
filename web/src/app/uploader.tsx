@@ -1,11 +1,16 @@
 "use client";
 
-import { ArrowRight, Video } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { ArrowRight, FileVideo, Video } from "lucide-react";
+import { useEffect, useId, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Button } from "../components/ui/button";
 import { Progress } from "../components/ui/progress";
 import { Alert, AlertDescription } from "../components/ui/alert";
 import type { UploadResult } from "../lib/models";
+import styles from "./uploader.module.css";
+
+const maxVideoBytes = 50_000_000;
+const ambiguousVideoTypes = ["", "application/octet-stream", "application/mp4", "application/mxf"];
 
 export function Uploader({
   getEndpoint,
@@ -13,17 +18,23 @@ export function Uploader({
   onSending,
   blocked = false,
   sendLabel = "Send video",
+  sendActionTarget,
 }: {
   getEndpoint: () => string | Promise<string>;
   onDone: (result: UploadResult) => void;
   onSending?: (sending: boolean) => void;
   blocked?: boolean;
   sendLabel?: string;
+  sendActionTarget?: HTMLElement | null;
 }) {
   const picker = useRef<HTMLInputElement>(null);
+  const replace = useRef<HTMLButtonElement>(null);
   const uploading = useRef(false);
+  const dragDepth = useRef(0);
+  const limitsId = useId();
   const [selection, setSelection] = useState<{ file: File; url: string }>();
   const [previewFailed, setPreviewFailed] = useState(false);
+  const [dragging, setDragging] = useState(false);
   const [progress, setProgress] = useState<number | null>(null);
   const [error, setError] = useState("");
   const previewUrl = selection?.url;
@@ -35,14 +46,29 @@ export function Uploader({
     [previewUrl],
   );
 
-  function selectFile(file: File) {
-    setError(file.size > 50_000_000 ? "Choose a video up to 50 MB." : "");
+  function selectFiles(files: FileList, fromPicker = false) {
+    if (uploading.current || blocked) return;
+    if (files.length !== 1) {
+      if (files.length > 1) setError("Choose one video at a time.");
+      return;
+    }
+    const file = files[0];
+    if (!file.type.startsWith("video/") && !ambiguousVideoTypes.includes(file.type)) {
+      setError("Choose a video file.");
+      return;
+    }
+    if (file.size > maxVideoBytes) {
+      setError("Choose a video up to 50 MB.");
+      return;
+    }
+    setError("");
     setPreviewFailed(false);
     setSelection({ file, url: URL.createObjectURL(file) });
+    if (fromPicker && !selection) requestAnimationFrame(() => replace.current?.focus());
   }
 
   async function upload() {
-    if (!selection || uploading.current || blocked || selection.file.size > 50_000_000) return;
+    if (!selection || uploading.current || blocked) return;
     uploading.current = true;
     onSending?.(true);
     setError("");
@@ -86,6 +112,11 @@ export function Uploader({
   }
 
   const disabled = progress !== null || blocked;
+  const sendAction = selection && (
+    <Button type="button" disabled={disabled} onClick={upload}>
+      {sendLabel} <ArrowRight aria-hidden />
+    </Button>
+  );
   return (
     <section className="panel upload-card" aria-label="Unboxing video">
       <input
@@ -97,39 +128,101 @@ export function Uploader({
         aria-label="Unboxing video"
         disabled={disabled}
         onChange={(event) => {
-          const file = event.target.files?.[0];
-          if (file) selectFile(file);
+          if (event.target.files) selectFiles(event.target.files, true);
           event.target.value = "";
         }}
       />
-      {selection && !previewFailed && (
-        <video
-          className="evidence-video"
-          src={selection.url}
-          controls
-          playsInline
-          preload="metadata"
-          aria-label="Selected video preview"
-          onError={() => setPreviewFailed(true)}
-        />
-      )}
+      <div
+        className={styles.mediaSurface}
+        data-upload-dropzone=""
+        data-dragging={dragging && !disabled}
+        onDragEnter={(event) => {
+          if (!event.dataTransfer.types.includes("Files")) return;
+          event.preventDefault();
+          dragDepth.current += 1;
+          if (!disabled) setDragging(true);
+        }}
+        onDragOver={(event) => {
+          if (!event.dataTransfer.types.includes("Files")) return;
+          event.preventDefault();
+          event.dataTransfer.dropEffect = disabled ? "none" : "copy";
+        }}
+        onDragLeave={() => {
+          dragDepth.current = Math.max(0, dragDepth.current - 1);
+          if (!dragDepth.current) setDragging(false);
+        }}
+        onDrop={(event) => {
+          const { files, types } = event.dataTransfer;
+          if (!files.length && !types.includes("Files")) return;
+          event.preventDefault();
+          dragDepth.current = 0;
+          setDragging(false);
+          selectFiles(files);
+        }}
+      >
+        {selection ? (
+          previewFailed ? (
+            <div className={styles.previewFallback}>
+              <FileVideo size={24} aria-hidden />
+              <p>Your browser can’t preview this file. You can still try uploading it.</p>
+            </div>
+          ) : (
+            <video
+              key={selection.url}
+              className={styles.preview}
+              src={selection.url}
+              controls
+              playsInline
+              preload="metadata"
+              aria-label="Selected video preview"
+              onError={() => setPreviewFailed(true)}
+            />
+          )
+        ) : (
+          <button
+            type="button"
+            className={styles.pickSurface}
+            aria-label="Choose video"
+            aria-describedby={limitsId}
+            disabled={disabled}
+            onClick={() => picker.current?.click()}
+          >
+            <Video size={24} aria-hidden />
+            <span className={styles.dropHint}>Drop your video here</span>
+            <span className={styles.pickLabel}>Choose video</span>
+          </button>
+        )}
+        {dragging && !disabled && (
+          <div className={styles.dropFeedback} aria-hidden>
+            <Video size={24} />
+            Drop to select video
+          </div>
+        )}
+      </div>
       {selection ? (
-        <div className="video-file">
+        <div className={styles.fileDetails}>
           <strong>{selection.file.name}</strong>
           <small>{(selection.file.size / 1_000_000).toFixed(1)} MB</small>
-          {previewFailed && (
-            <p className="muted-copy">
-              Your browser can’t preview this file. You can still try uploading it.
-            </p>
-          )}
         </div>
-      ) : (
-        <>
-          <h2>Choose an unboxing video</h2>
-          <p className="muted-copy">Pick a clip from your device.</p>
-        </>
+      ) : null}
+      <p id={limitsId} className="limit-copy">
+        5 seconds to 2 minutes · Up to 50 MB
+      </p>
+      {selection && (
+        <div className="action-row">
+          <Button
+            ref={replace}
+            type="button"
+            variant="outline"
+            disabled={disabled}
+            onClick={() => picker.current?.click()}
+          >
+            <Video aria-hidden /> Replace video
+          </Button>
+          {sendActionTarget === undefined && sendAction}
+        </div>
       )}
-      <p className="limit-copy">5 seconds to 2 minutes · Up to 50 MB</p>
+      {sendActionTarget && sendAction && createPortal(sendAction, sendActionTarget)}
       {progress !== null && (
         <div className="upload-progress">
           <Progress aria-label="Upload progress" value={progress} max={100} />
@@ -141,25 +234,6 @@ export function Uploader({
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
-      <div className="action-row">
-        <Button
-          type="button"
-          variant={selection ? "outline" : "default"}
-          disabled={disabled}
-          onClick={() => picker.current?.click()}
-        >
-          <Video aria-hidden /> {selection ? "Replace video" : "Choose video"}
-        </Button>
-        {selection && (
-          <Button
-            type="button"
-            disabled={disabled || selection.file.size > 50_000_000}
-            onClick={upload}
-          >
-            {sendLabel} <ArrowRight aria-hidden />
-          </Button>
-        )}
-      </div>
     </section>
   );
 }

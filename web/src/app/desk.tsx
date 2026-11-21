@@ -1,24 +1,12 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
 import { ArrowRight, Package, Store } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardFooter } from "../components/ui/card";
-import { BuyerDesk } from "./buyer-desk";
 import { DeskShell } from "./desk-shell";
-import { ShopDesk } from "./shop-desk";
 
-export default function Desk({
-  initialScreen = "roles",
-}: {
-  initialScreen?: "roles" | "orders" | "reports";
-}) {
-  const [shop, setShop] = useState(false);
-
-  if (initialScreen !== "roles") return <BuyerDesk home={initialScreen} />;
-  if (shop) return <ShopDesk onHome={() => setShop(false)} />;
-
+export default function Desk() {
   return (
     <DeskShell view="roles">
       <h1 tabIndex={-1}>
@@ -29,7 +17,7 @@ export default function Desk({
           <CardContent>
             <Package aria-hidden />
             <h2>Buyer</h2>
-            <p>Report a problem with a delivered order.</p>
+            <p>Start a claim or check a report.</p>
           </CardContent>
           <CardFooter>
             <Button asChild>
@@ -46,8 +34,10 @@ export default function Desk({
             <p>Review the evidence and reply to buyers.</p>
           </CardContent>
           <CardFooter>
-            <Button variant="outline" onClick={() => setShop(true)}>
-              Continue as shop owner <ArrowRight aria-hidden />
+            <Button asChild variant="outline">
+              <a href="/shop">
+                Continue as shop owner <ArrowRight aria-hidden />
+              </a>
             </Button>
           </CardFooter>
         </Card>

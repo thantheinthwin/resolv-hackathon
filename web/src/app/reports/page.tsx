@@ -1,4 +1,5 @@
-import Desk from "../desk";
+import { redirect } from "next/navigation";
+
 export default function Reports() {
-  return <Desk initialScreen="reports" />;
+  redirect("/orders#my-reports");
 }

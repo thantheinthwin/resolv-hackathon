@@ -2,7 +2,7 @@
 
 import { useSyncExternalStore } from "react";
 import { api, ApiError } from "./client";
-import type { Claim, CreatedCase, Order, Report } from "./models";
+import type { Claim, CreatedCase, Listing, Order, Report } from "./models";
 
 export type OrderSummary = {
   id: string;
@@ -24,15 +24,17 @@ export function summarizeOrder(order: Order): OrderSummary {
   };
 }
 
-export type Draft = {
-  order: OrderSummary;
+export type ClaimTarget =
+  { order: OrderSummary; listing?: never } | { order?: never; listing: Listing };
+
+export type Draft = ClaimTarget & {
   claim?: Claim;
   description: string;
   step: "complaint" | "video";
   caseId?: string;
 };
 
-type ReceiptSummary = { order: OrderSummary; claim: Claim };
+type ReceiptSummary = ClaimTarget & { claim: Claim };
 type BuyerSession = { draft?: Draft; receipts: Record<string, ReceiptSummary> };
 
 const storageKey = "unboxing-judge.buyer.v1";
@@ -83,7 +85,7 @@ export function ensureDraftCase(): Promise<string> {
   if (draft.caseId) return Promise.resolve(draft.caseId);
 
   creating = api<CreatedCase>("cases", {
-    order_id: draft.order.id,
+    ...(draft.order ? { order_id: draft.order.id } : { listing_id: draft.listing.id }),
     claim_type: draft.claim,
     description: draft.description,
   })
@@ -102,7 +104,12 @@ export function rememberReceipt(id: string) {
     const draft = session.draft;
     if (draft?.caseId !== id || !draft.claim) return session;
     return {
-      receipts: { ...session.receipts, [id]: { order: draft.order, claim: draft.claim } },
+      receipts: {
+        ...session.receipts,
+        [id]: draft.order
+          ? { order: draft.order, claim: draft.claim }
+          : { listing: draft.listing, claim: draft.claim },
+      },
     };
   });
 }
@@ -112,15 +119,12 @@ export async function deleteReport(id?: string, isDraft = false) {
   if (id) {
     const endpoint = "cases/" + encodeURIComponent(id);
     try {
-      if (isDraft) {
-        const report = await api<Report>(endpoint);
-        if (videoReceived(report.status)) {
-          rememberReceipt(id);
-          return { deleted: false, id };
-        }
-      }
-      await api(endpoint, undefined, "DELETE");
+      await api(endpoint + (isDraft ? "?draft=1" : ""), undefined, "DELETE");
     } catch (error) {
+      if (isDraft && error instanceof ApiError && error.status === 409) {
+        rememberReceipt(id);
+        return { deleted: false, id };
+      }
       if (!(error instanceof ApiError && error.status === 404)) throw error;
     }
   }

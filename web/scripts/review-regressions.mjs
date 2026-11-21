@@ -126,19 +126,28 @@ try {
   await p.getByText(winner, { exact: true }).waitFor();
   await p.getByRole("button", { name: /Unboxing Judge/ }).click();
   await p.getByText("Continue as buyer").click();
-  await p.getByText("My reports", { exact: true }).click();
-  const button = p
-    .getByRole("listitem")
-    .filter({ hasText: id.slice(0, 8) })
-    .getByText("Delete report");
+  await p.getByRole("link", { name: "My reports", exact: true }).click();
+  const report = p.locator('[data-report="' + id + '"]');
+  const button = report.getByText("Delete report");
   p.once("dialog", (dialog) => dialog.dismiss());
   await button.click();
   assert.equal((await api("cases/" + id)).status, 200);
+  const deleteUrl = "**/api/cases/" + id;
+  const checkingError = "Case is being checked. Retry deletion once it finishes.";
+  await p.route(deleteUrl, (route) =>
+    route.request().method() === "DELETE"
+      ? route.fulfill({ status: 409, json: { detail: checkingError } })
+      : route.continue(),
+  );
+  p.once("dialog", (dialog) => dialog.accept());
+  await button.click();
+  await report.getByRole("alert").getByText(checkingError).waitFor();
+  await p.unroute(deleteUrl);
   p.once("dialog", (dialog) => dialog.accept());
   await button.click();
   await button.waitFor({ state: "detached" });
   await p.reload();
-  await p.getByRole("heading", { name: "My reports." }).waitFor();
+  await p.getByRole("heading", { name: "My reports.", exact: true }).waitFor();
   assert.equal(await button.count(), 0);
   assert.equal((await api("shop/cases/" + id)).status, 404);
   assert(!existsSync(join(store, id)));
@@ -146,6 +155,7 @@ try {
   assert.equal((await api("listings")).status, 200);
   await p.getByRole("button", { name: /Unboxing Judge/ }).click();
   await p.getByText("Continue as buyer").click();
+  await p.getByText("Use an existing order", { exact: true }).click();
   await p.getByText("Report a problem").click();
   await p.getByRole("radio", { name: "Damaged item" }).click();
   await p.getByText("Continue to video").click();
@@ -159,6 +169,16 @@ try {
   const bar = p.getByRole("progressbar");
   await bar.waitFor();
   assert.equal(await bar.getAttribute("aria-valuenow"), "0");
+  const sellerLink = p.getByRole("link", { name: "Switch to shop owner" });
+  assert.equal(await sellerLink.getAttribute("aria-disabled"), "true");
+  assert.equal(await p.getByRole("button", { name: /Unboxing Judge/ }).isDisabled(), true);
+  assert.equal(
+    await sellerLink.evaluate((link) =>
+      link.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true })),
+    ),
+    false,
+  );
+  assert.equal(new URL(p.url()).pathname, "/orders");
   await p.waitForFunction(() => !!window.reviewUpload);
   await p.evaluate(() =>
     window.reviewUpload.upload.dispatchEvent(
@@ -167,6 +187,9 @@ try {
   );
   await p.getByText("42% uploaded").waitFor();
   assert.equal(await bar.getAttribute("aria-valuenow"), "42");
+  await p.evaluate(() => window.reviewUpload.dispatchEvent(new ProgressEvent("error")));
+  await p.getByText("Upload interrupted. Try sending your video again.").waitFor();
+  assert.equal(await sellerLink.getAttribute("aria-disabled"), null);
 } finally {
   await b.close();
 }

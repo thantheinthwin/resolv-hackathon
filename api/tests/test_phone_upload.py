@@ -66,14 +66,19 @@ def test_phone_link_restart_retry_and_single_use(
 
     with TestClient(create_app(tmp_path), headers=headers) as client:
         endpoint = f"/api/uploads/{token}"
+        case_endpoint = f"/api/cases/{case_id}"
+        assert client.get(case_endpoint).json()["status"] == "sent"
         assert client.post(endpoint, files={"video": ("bad.mp4", b"invalid")}).status_code == 422
-        result = client.post(endpoint, files={"video": ("phone.mp4", recording, "video/mp4")})
+        result = client.post(
+            endpoint, files={"video": ("recording", recording, "application/octet-stream")}
+        )
         assert result.status_code == 202
         assert result.json()["id"] == case_id and result.json()["warnings"]
         assert client.post(endpoint).status_code == 404
         assert client.post(f"/api/cases/{case_id}/upload-link").status_code == 409
         assert "event: done" in client.get(f"/api/cases/{case_id}/events").text
-        assert client.get(f"/api/cases/{case_id}").json() == {
+        assert client.delete(case_endpoint, params={"draft": 1}).status_code == 409
+        assert client.get(case_endpoint).json() == {
             "id": case_id,
             "status": "with_shop",
             "note_for_buyer": None,

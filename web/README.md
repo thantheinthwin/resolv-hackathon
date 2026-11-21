@@ -17,12 +17,11 @@ phone-accessible web origin at build time.
 
 ## Decision and verification record
 
-The web client uses the generated API contracts for both roles. Buyer reports
-contain a status and a shop note. Shop case details include the evidence and
-decision. The separate sample store supports upload rehearsal while the live
-API returns 501 for video intake, phone upload links, and product creation.
-The sample adapter calls the team's intake implementation so phone and desktop
-uploads share decoding and recording-quality checks.
+The integrated web client uses the generated API contracts for both roles.
+The buyer view shows the status and shop note. The shop review includes
+evidence and the saved decision. The sample adapter calls the team's intake
+implementation so phone and desktop uploads share decoding and recording-quality
+checks.
 
 Case deletion invalidates upload tokens and removes the video and judge
 output. Conditional SQLite writes protect a saved decision from a second
@@ -44,19 +43,36 @@ REHEARSAL_URL to its localhost URL. Run these commands in order:
 3. `node scripts/review-regressions.mjs` checks deletion, intake boundaries
    and darkness warnings, concurrent decisions, shop product context, job
    events, and the accessible upload percentage in an isolated case store.
-4. `node scripts/mobile-flow.mjs` checks direct buyer uploads and seller review
-   with iPhone and Android screen profiles in Chrome. Install Playwright WebKit
-   and set `PHONE_WEBKIT=1` to run the iPhone profile in WebKit.
+4. `node scripts/mobile-flow.mjs` checks direct uploads, report evidence, and the
+   seller case list with iPhone and Android screen profiles in Chrome. Install
+   Playwright WebKit and set `PHONE_WEBKIT=1` to run the iPhone profile in WebKit.
+5. `node scripts/product-flow.mjs` checks the product wizard, role switches,
+   shared claim links, catalogue search, draft replacement, original video
+   playback, and the product-scoped case sidebar at desktop and phone widths.
 
-The live proxy was exercised with a temporary FastAPI store for orders, shop
-context, case creation, and deletion (204 followed by 404). Physical phone
-and real-judge verification remain team checkpoints.
+Set `INTEGRATED_REHEARSAL_URL` to a web instance backed by an isolated FastAPI
+store to also verify that draft-only deletion preserves a video after a phone
+upload. Physical phone and real-judge verification remain team checkpoints.
 
-Verified locally on the shared baseline: 109 Python tests passed, TypeScript
-and the production build passed, and Chrome exercised the role flows and six
-review regressions. The repository-wide check stopped at Ruff formatting in
-three unchanged judge files (integrity and its test, plus the privacy test).
-This local checkpoint still needs the team's green CI and seam review before merge.
+On the rebased branch, `make check` passed all 232 Python tests plus the web
+lint, format, and type checks. The Next.js production build passed. The
+mobile rehearsal used iPhone and Android profiles in Chrome.
+
+## One-page sample walkthrough
+
+From the shop product page, select **Copy claim link** and open it on any
+browser that can reach the sample server. In **Find your product**, buyers can
+paste the link for an exact match or type a name, variant, or reference for
+ranked suggestions. Confirming a product opens the claim fields in the same
+section. **Use an existing order** opens the order-based path. **My reports** on the same page includes
+the buyer's description, original video, status, and shop reply.
+
+The sample store uses one shared demo buyer. Use sandbox data and rehearsal
+clips. Standalone claims follow the exact listing ID, and order-based claims
+follow their order's listing ID. Open a claim from a product to see that
+product's case list, or from the inbox to see all submitted cases. The
+integrated API supports catalogue creation and order-based claims. Standalone
+claim intake and authenticated buyer playback are integration follow-ups.
 
 ## Mobile redesign handoff
 

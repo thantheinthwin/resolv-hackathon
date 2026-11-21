@@ -1,9 +1,15 @@
 "use client";
 
 import { ArrowLeft, ArrowRight, CircleCheck, Package, QrCode } from "lucide-react";
-import Link from "next/link";
 import QRCode from "qrcode";
-import { useEffect, useEffectEvent, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useEffectEvent,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { Alert, AlertDescription } from "../components/ui/alert";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
@@ -18,11 +24,14 @@ import {
   summarizeOrder,
   useBuyerSession,
   videoReceived,
+  type ClaimTarget,
   type Draft,
   type OrderSummary,
 } from "../lib/buyer-session";
 import { claims, type Claim, type Order, type Report, type UploadLink } from "../lib/models";
+import { ClaimProduct, ProductReference } from "./claim-product";
 import { DeskShell } from "./desk-shell";
+import { ReportEvidence } from "./report-evidence";
 import { Uploader } from "./uploader";
 
 const guidance: Record<Claim, { example: string; prompt: string; video: string }> = {
@@ -85,10 +94,19 @@ function OrderDetails({ order }: { order: OrderSummary }) {
   );
 }
 
-function Steps({ current }: { current: "complaint" | "video" | "sent" }) {
+function ClaimContext({ target }: { target: ClaimTarget }) {
+  return target.order ? (
+    <OrderDetails order={target.order} />
+  ) : (
+    <ProductReference listing={target.listing} />
+  );
+}
+
+function Steps({ current }: { current: "workspace" | "complaint" | "video" | "sent" }) {
   const steps = [
-    ["complaint", "Report the problem"],
-    ["video", "Add video"],
+    ["workspace", "Product"],
+    ["complaint", "Problem"],
+    ["video", "Video"],
     ["sent", "Sent"],
   ];
   const index = steps.findIndex(([step]) => step === current);
@@ -112,40 +130,57 @@ function ReportRow({
   title,
   detail,
   badge,
+  id,
+  actionError,
   children,
 }: {
   title: string;
   detail?: string;
   badge: string;
+  id?: string;
+  actionError?: string;
   children: ReactNode;
 }) {
   return (
-    <li className="report-row">
+    <li className="report-row" data-report={id}>
       <div className="report-row-title">
         <div>
-          <h2>{title}</h2>
+          <h3>{title}</h3>
           {detail && <p className="muted-copy">{detail}</p>}
         </div>
         <Badge variant="secondary">{badge}</Badge>
       </div>
       {children}
+      {actionError && (
+        <Alert variant="destructive">
+          <AlertDescription>{actionError}</AlertDescription>
+        </Alert>
+      )}
     </li>
   );
 }
 
-export function BuyerDesk({ home }: { home: "orders" | "reports" }) {
+export function BuyerDesk({
+  sampleMode,
+  linkedProduct,
+}: {
+  sampleMode: boolean;
+  linkedProduct?: string;
+}) {
   const { draft, receipts } = useBuyerSession();
   const [step, setStep] = useState<"complaint" | "video" | "sent">();
   const [receipt, setReceipt] = useState<{
     id: string;
-    order: OrderSummary;
+    target: ClaimTarget;
     claim: Claim;
     failed: boolean;
     warning: string;
   }>();
   const [orders, setOrders] = useState<Order[]>();
   const [reports, setReports] = useState<Report[]>();
-  const [loadError, setLoadError] = useState("");
+  const [orderError, setOrderError] = useState(false);
+  const [reportError, setReportError] = useState(false);
+  const [deletionError, setDeletionError] = useState<{ target: string; message: string }>();
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [refresh, setRefresh] = useState(0);
@@ -153,47 +188,68 @@ export function BuyerDesk({ home }: { home: "orders" | "reports" }) {
   const [generating, setGenerating] = useState(false);
   const [generatedHandoff, setHandoff] = useState<{ caseId: string; url: string; image: string }>();
   const [deleting, setDeleting] = useState(false);
+  const [expandedReport, setExpandedReport] = useState<string>();
 
-  const view = step ?? home;
+  const view = step === "sent" || draft ? (step ?? "workspace") : "workspace";
+  const frameBody = useRef<HTMLDivElement>(null);
+  const [frameActions, setFrameActions] = useState<HTMLDivElement | null>(null);
   const caseId = draft?.caseId;
   const handoff = generatedHandoff?.caseId === caseId ? generatedHandoff : undefined;
   const claim = draft?.claim;
   const deletingIds = useRef(new Set<string>());
+  const replacingDraft = useRef(false);
+
+  useLayoutEffect(() => {
+    if (frameBody.current) frameBody.current.scrollTop = 0;
+  }, [view]);
 
   useEffect(() => {
-    if (view !== "orders" && view !== "reports") return;
+    let active = true;
+    api<Order[]>("orders").then(
+      (result) => {
+        if (active) {
+          setOrders(result);
+          setOrderError(false);
+        }
+      },
+      () => {
+        if (active) setOrderError(true);
+      },
+    );
+    return () => {
+      active = false;
+    };
+  }, [refresh]);
+
+  useEffect(() => {
     let active = true;
     let loading = false;
     async function load() {
       if (loading) return;
       loading = true;
       try {
-        if (view === "orders") {
-          const result = await api<Order[]>("orders");
-          if (active) setOrders(result);
-        } else {
-          const result = await api<Report[]>("my/cases");
-          if (active) setReports(result.filter(({ id }) => !deletingIds.current.has(id)));
+        const result = await api<Report[]>("my/cases");
+        if (active) {
+          setReports(result.filter(({ id }) => !deletingIds.current.has(id)));
+          setReportError(false);
         }
-        if (active) setLoadError("");
       } catch {
-        if (active)
-          setLoadError("Couldn’t load " + (view === "orders" ? "your orders." : "your reports."));
+        if (active) setReportError(true);
       } finally {
         loading = false;
       }
     }
     void load();
-    const timer = view === "reports" ? setInterval(load, 2000) : undefined;
+    const timer = setInterval(load, 2000);
     return () => {
       active = false;
       clearInterval(timer);
     };
-  }, [view, refresh]);
+  }, [refresh]);
 
   function finish(id: string, failed = false, warning = "") {
     if (draft?.claim) {
-      setReceipt({ id, order: draft.order, claim: draft.claim, failed, warning });
+      setReceipt({ id, target: draft, claim: draft.claim, failed, warning });
       setStep("sent");
     }
     rememberReceipt(id);
@@ -206,7 +262,7 @@ export function BuyerDesk({ home }: { home: "orders" | "reports" }) {
   });
 
   useEffect(() => {
-    if (!caseId || sending || !["orders", "reports", "video"].includes(view)) return;
+    if (!caseId || sending || (view !== "workspace" && view !== "video")) return;
     const endpoint = "cases/" + encodeURIComponent(caseId);
     let active = true;
     async function check() {
@@ -227,7 +283,7 @@ export function BuyerDesk({ home }: { home: "orders" | "reports" }) {
     };
   }, [caseId, sending, view]);
 
-  function updateDraft(update: Partial<Draft>) {
+  function updateDraft(update: Partial<Pick<Draft, "description" | "claim" | "step">>) {
     changeBuyerSession((session) =>
       session.draft ? { ...session, draft: { ...session.draft, ...update } } : session,
     );
@@ -239,18 +295,36 @@ export function BuyerDesk({ home }: { home: "orders" | "reports" }) {
     setStep(draft.step);
   }
 
-  function newReport(order: OrderSummary) {
-    if (draft?.order.id === order.id) {
+  async function newReport(target: ClaimTarget) {
+    if (replacingDraft.current || deleting) return;
+    if (
+      (target.order && draft?.order?.id === target.order.id) ||
+      (target.listing && draft?.listing?.id === target.listing.id)
+    ) {
       resume();
       return;
     }
     if (draft) {
-      setError("Resume or discard your current draft in My reports before starting another.");
-      return;
+      if (!window.confirm("Replace your current draft? Its progress will be discarded.")) return;
+      replacingDraft.current = true;
+      setDeleting(true);
+      try {
+        const result = await deleteReport(caseId, true);
+        if (!result.deleted) {
+          setMessage("Your video reached the shop. The report is still in My reports.");
+          return;
+        }
+      } catch (error) {
+        setError(error instanceof Error ? error.message : "Couldn’t replace the draft. Try again.");
+        return;
+      } finally {
+        replacingDraft.current = false;
+        setDeleting(false);
+      }
     }
     changeBuyerSession((session) => ({
       ...session,
-      draft: { order, description: "", step: "complaint" },
+      draft: { ...target, description: "", step: "complaint" },
     }));
     setError("");
     setStep("complaint");
@@ -270,7 +344,8 @@ export function BuyerDesk({ home }: { home: "orders" | "reports" }) {
         link.protocol = configured.protocol;
         link.host = configured.host;
       }
-      link.searchParams.set("order", draft.order.id);
+      if (draft.order) link.searchParams.set("order", draft.order.id);
+      else link.searchParams.set("product", draft.listing.id.slice(0, 8));
       const href = link.href;
       setHandoff({ caseId: id, url: href, image: await QRCode.toDataURL(href) });
     } catch (error) {
@@ -283,8 +358,12 @@ export function BuyerDesk({ home }: { home: "orders" | "reports" }) {
   }
 
   async function remove(id?: string, isDraft = false) {
+    const deletionTarget = isDraft ? "draft" : id;
     if (
+      !deletionTarget ||
       deleting ||
+      sending ||
+      generating ||
       !window.confirm(
         isDraft
           ? "Discard this draft? This permanently deletes the report and any video or evidence attached to it."
@@ -293,10 +372,12 @@ export function BuyerDesk({ home }: { home: "orders" | "reports" }) {
     )
       return;
     setDeleting(true);
-    setError("");
+    setDeletionError(undefined);
+    setMessage("");
     try {
       const result = await deleteReport(id, isDraft);
       if (!result.deleted) {
+        setStep((current) => (current === "sent" ? current : undefined));
         setMessage("Your video reached the shop. The report is still in My reports.");
         return;
       }
@@ -304,9 +385,13 @@ export function BuyerDesk({ home }: { home: "orders" | "reports" }) {
         deletingIds.current.add(result.id);
         setReports((items) => items?.filter((item) => item.id !== result.id));
       }
+      if (isDraft) setStep(undefined);
       setMessage(isDraft ? "Draft discarded." : "Report deleted.");
     } catch (error) {
-      setError(error instanceof Error ? error.message : "Couldn’t delete this report. Try again.");
+      setDeletionError({
+        target: deletionTarget,
+        message: error instanceof Error ? error.message : "Couldn’t delete this report. Try again.",
+      });
     } finally {
       setDeleting(false);
     }
@@ -314,310 +399,369 @@ export function BuyerDesk({ home }: { home: "orders" | "reports" }) {
 
   const navigation = (
     <>
-      <Link
-        href="/orders"
-        aria-current={home === "orders" ? "page" : undefined}
-        onClick={
-          home === "orders"
-            ? () => {
-                setStep(undefined);
-                setError("");
-              }
-            : undefined
-        }
+      <a
+        href="#start-a-claim"
+        onClick={() => {
+          if (!sending && !generating) {
+            setStep(undefined);
+            setError("");
+          }
+        }}
       >
-        Your orders
-      </Link>
-      <Link
-        href="/reports"
-        aria-current={home === "reports" ? "page" : undefined}
-        onClick={
-          home === "reports"
-            ? () => {
-                setStep(undefined);
-                setError("");
-              }
-            : undefined
-        }
-      >
-        My reports
-      </Link>
+        Start a claim
+      </a>
+      <a href="#my-reports">My reports</a>
     </>
   );
 
+  const frameTitle = {
+    workspace: "Choose a product or order",
+    complaint: "Tell us what went wrong",
+    video: "Add your unboxing video",
+    sent: receipt?.failed ? "Video received. Checking failed" : "Sent to the shop",
+  }[view];
+  const target = view === "sent" ? receipt?.target : draft;
+  const badgeClaim = view === "sent" ? receipt?.claim : view === "video" ? claim : undefined;
+
   return (
-    <DeskShell role="Buyer" view={view} navigation={navigation}>
-      {view !== "video" && error && (
-        <Alert variant="destructive">
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
-      {loadError && (view === "orders" || view === "reports") && (
-        <Alert variant="destructive">
-          <AlertDescription>
-            {loadError}{" "}
-            <Button variant="ghost" onClick={() => setRefresh((value) => value + 1)}>
+    <DeskShell role="Buyer" view={view} navigation={navigation} navigationBlocked={sending}>
+      <section id="start-a-claim" className="claim-workspace" aria-labelledby="claim-title">
+        <h1 id="claim-title" tabIndex={-1}>
+          Start a claim<span className="heading-period">.</span>
+        </h1>
+        <Steps current={view} />
+        <div className="panel claim-frame">
+          <header className="claim-frame-heading">
+            <h2
+              className="claim-step-title"
+              id="claim-step-title"
+              key={view}
+              tabIndex={-1}
+              data-step-heading
+            >
+              {frameTitle}
+              <span className="heading-period">.</span>
+            </h2>
+            {view === "sent" && !receipt?.failed && <CircleCheck aria-hidden />}
+          </header>
+          <div className="claim-frame-body" ref={frameBody}>
+            {error && (
+              <Alert variant="destructive">
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
+            {view !== "workspace" && target && (
+              <div className="order-recap">
+                <div className="order-context">
+                  <ClaimContext target={target} />
+                </div>
+                {view === "complaint" && (
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setError("");
+                      setStep(undefined);
+                    }}
+                  >
+                    {draft?.order ? "Change order" : "Change product"}
+                  </Button>
+                )}
+                {badgeClaim && <Badge variant="secondary">{claims[badgeClaim]}</Badge>}
+              </div>
+            )}
+            <div hidden={view !== "workspace"}>
+              {draft && (
+                <div className="claim-draft-callout">
+                  <span>
+                    You have a draft for{" "}
+                    <strong>{draft.order?.title ?? draft.listing?.title}</strong>.
+                  </span>
+                  <a className="text-link" href="#my-reports">
+                    Go to draft
+                  </a>
+                </div>
+              )}
+              {sampleMode && (
+                <ClaimProduct
+                  key={receipt?.id ?? linkedProduct}
+                  linkedProduct={linkedProduct}
+                  busy={deleting}
+                  onConfirm={(listing) => void newReport({ listing })}
+                />
+              )}
+              <details className="claim-existing-orders" open={!sampleMode || undefined}>
+                <summary>Use an existing order</summary>
+                {orderError ? (
+                  <div className="action-row" role="status">
+                    Couldn’t load your orders.
+                    <Button variant="outline" onClick={() => setRefresh((value) => value + 1)}>
+                      Try again
+                    </Button>
+                  </div>
+                ) : !orders ? (
+                  <p role="status">Loading your orders…</p>
+                ) : (
+                  orders.length === 0 && (
+                    <p className="muted-copy">Delivered orders will appear here.</p>
+                  )
+                )}
+                <ul className="order-list">
+                  {orders?.map(summarizeOrder).map((order) => (
+                    <li className="order-row" key={order.id}>
+                      <div className="order-context">
+                        <OrderDetails order={order} />
+                      </div>
+                      <Button disabled={deleting} onClick={() => void newReport({ order })}>
+                        {draft?.order?.id === order.id ? "Resume report" : "Report a problem"}{" "}
+                        <ArrowRight aria-hidden />
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            </div>
+            {view === "complaint" && draft && (
+              <form
+                id="claim-problem"
+                aria-labelledby="claim-step-title"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  if (!claim) return;
+                  updateDraft({ step: "video" });
+                  setError("");
+                  setStep("video");
+                }}
+              >
+                <RadioGroup
+                  aria-label="What went wrong?"
+                  className="choices"
+                  value={claim ?? ""}
+                  required
+                  onValueChange={(value) => updateDraft({ claim: value as Claim })}
+                >
+                  {(Object.keys(claims) as Claim[]).map((id) => (
+                    <label className="claim-option" key={id}>
+                      <RadioGroupItem
+                        value={id}
+                        aria-labelledby={"claim-" + id}
+                        aria-describedby={"example-" + id}
+                      />
+                      <span>
+                        <strong id={"claim-" + id}>{claims[id]}</strong>
+                        <span id={"example-" + id}>{guidance[id].example}</span>
+                      </span>
+                    </label>
+                  ))}
+                </RadioGroup>
+                <div className="description-field">
+                  <label htmlFor="buyer-description">
+                    What happened? <span className="muted-copy">(optional)</span>
+                  </label>
+                  <p className="muted-copy" id="description-tip">
+                    {claim
+                      ? guidance[claim].prompt
+                      : "Describe what was different from what you expected."}
+                  </p>
+                  <Textarea
+                    id="buyer-description"
+                    value={draft.description}
+                    aria-describedby="description-tip"
+                    onChange={(event) => updateDraft({ description: event.target.value })}
+                  />
+                </div>
+              </form>
+            )}
+            {view === "video" && draft && claim && (
+              <div className="upload-layout">
+                <div className="filming-tip">
+                  <h2>What to show</h2>
+                  <p>{guidance[claim].video}</p>
+                  <p className="muted-copy">Keep faces and personal details out of the frame.</p>
+                </div>
+                <Uploader
+                  blocked={generating || deleting}
+                  getEndpoint={async () =>
+                    "cases/" + encodeURIComponent(await ensureDraftCase()) + "/video"
+                  }
+                  onSending={setSending}
+                  onDone={({ id, warnings }) => finish(id, false, warnings?.join(" "))}
+                  sendActionTarget={frameActions}
+                  sendLabel="Send to the shop"
+                />
+                <section className="panel phone-handoff">
+                  <QrCode aria-hidden />
+                  <h2>Upload from your phone</h2>
+                  {handoff ? (
+                    <>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={handoff.image}
+                        alt="Scan to upload from your phone"
+                        width="148"
+                        height="148"
+                      />
+                      <p>Scan to choose a video.</p>
+                      <a href={handoff.url} className="text-link">
+                        Open phone upload
+                      </a>
+                    </>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      disabled={sending || generating}
+                      onClick={generateHandoff}
+                    >
+                      {generating ? "Preparing the code…" : "Show QR code"}
+                    </Button>
+                  )}
+                </section>
+              </div>
+            )}
+            {view === "sent" && receipt && (
+              <div className="claim-receipt">
+                <small>Report {receipt.id.slice(0, 8)}</small>
+                <p>
+                  {receipt.failed
+                    ? reportStates.failed.next
+                    : "The shop will reply in My reports. No action is needed right now."}
+                </p>
+                {receipt.warning && (
+                  <p className="warning-copy" role="status">
+                    {receipt.warning}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+          <div className="claim-frame-actions" ref={setFrameActions}>
+            {view === "complaint" && (
+              <Button type="submit" form="claim-problem" disabled={!claim}>
+                Continue to video <ArrowRight aria-hidden />
+              </Button>
+            )}
+            {view === "video" && !caseId && (
+              <Button
+                variant="ghost"
+                className="claim-back-action"
+                disabled={sending || generating || deleting}
+                onClick={() => {
+                  updateDraft({ step: "complaint" });
+                  setStep("complaint");
+                }}
+              >
+                <ArrowLeft aria-hidden /> Back to the claim
+              </Button>
+            )}
+            {view === "sent" && (
+              <Button asChild>
+                <a href="#my-reports">
+                  View my reports <ArrowRight aria-hidden />
+                </a>
+              </Button>
+            )}
+          </div>
+        </div>
+      </section>
+      <section id="my-reports" className="buyer-reports" aria-labelledby="buyer-reports-title">
+        <h2 id="buyer-reports-title">
+          My reports<span className="heading-period">.</span>
+        </h2>
+        {message && <p role="status">{message}</p>}
+        {reportError && (
+          <div className="action-row" role="status">
+            Couldn’t load your reports.
+            <Button variant="outline" onClick={() => setRefresh((value) => value + 1)}>
               Try again
             </Button>
-          </AlertDescription>
-        </Alert>
-      )}
-      {message && <p role="status">{message}</p>}
-      {view === "orders" && (
-        <>
-          <h1 tabIndex={-1}>
-            Your orders<span className="heading-period">.</span>
-          </h1>
-          {!orders && !loadError && (
-            <p className="loading-row" role="status">
-              Loading your orders…
-            </p>
-          )}
-          {orders?.length === 0 && (
-            <p className="empty-state">Delivered orders will appear here.</p>
-          )}
-          <ul className="order-list">
-            {orders?.map(summarizeOrder).map((order) => (
-              <li className="panel order-row" key={order.id}>
-                <div className="order-context">
-                  <OrderDetails order={order} />
-                </div>
-                <Button onClick={() => newReport(order)}>
-                  {draft?.order.id === order.id ? "Resume report" : "Report a problem"}{" "}
-                  <ArrowRight aria-hidden />
-                </Button>
-              </li>
-            ))}
-          </ul>
-        </>
-      )}
-      {view === "complaint" && draft && (
-        <div className="buyer-form">
-          <Steps current="complaint" />
-          <h1 tabIndex={-1}>
-            Tell us what went wrong<span className="heading-period">.</span>
-          </h1>
-          <div className="order-context order-recap">
-            <OrderDetails order={draft.order} />
           </div>
-          <form
-            onSubmit={(event) => {
-              event.preventDefault();
-              if (!claim) return;
-              updateDraft({ step: "video" });
-              setError("");
-              setStep("video");
-            }}
-          >
-            <RadioGroup
-              aria-label="What went wrong?"
-              className="choices"
-              value={claim ?? ""}
-              required
-              onValueChange={(value) => updateDraft({ claim: value as Claim })}
+        )}
+        {!reports && !reportError && (
+          <p className="loading-row" role="status">
+            Loading your reports…
+          </p>
+        )}
+        {reports?.length === 0 && !draft && (
+          <p className="empty-state">Reports you send to the shop will appear here.</p>
+        )}
+        <ul className="report-list">
+          {draft && (
+            <ReportRow
+              title={draft.order ? draft.order.title : draft.listing.title}
+              detail={claim ? claims[claim] : "Choose a claim to continue"}
+              badge="Draft"
+              actionError={deletionError?.target === "draft" ? deletionError.message : undefined}
             >
-              {(Object.keys(claims) as Claim[]).map((id) => (
-                <label className="claim-option" key={id}>
-                  <RadioGroupItem
-                    value={id}
-                    aria-labelledby={"claim-" + id}
-                    aria-describedby={"example-" + id}
-                  />
-                  <span>
-                    <strong id={"claim-" + id}>{claims[id]}</strong>
-                    <span id={"example-" + id}>{guidance[id].example}</span>
-                  </span>
-                </label>
-              ))}
-            </RadioGroup>
-            <div className="description-field">
-              <label htmlFor="buyer-description">
-                What happened? <span className="muted-copy">(optional)</span>
-              </label>
-              {claim && (
-                <p className="muted-copy" id="description-tip">
-                  {guidance[claim].prompt}
-                </p>
-              )}
-              <Textarea
-                id="buyer-description"
-                value={draft.description}
-                aria-describedby={claim ? "description-tip" : undefined}
-                onChange={(event) => updateDraft({ description: event.target.value })}
-              />
-            </div>
-            <Button disabled={!claim}>
-              Continue to video <ArrowRight aria-hidden />
-            </Button>
-          </form>
-        </div>
-      )}
-      {view === "video" && draft && claim && (
-        <>
-          <Steps current="video" />
-          <h1 tabIndex={-1}>
-            Add your unboxing video<span className="heading-period">.</span>
-          </h1>
-          <div className="order-recap">
-            <div className="order-context">
-              <OrderDetails order={draft.order} />
-            </div>
-            <Badge variant="secondary">{claims[claim]}</Badge>
-          </div>
-          {error && (
-            <Alert variant="destructive">
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          )}
-          <div className="upload-layout">
-            <div className="filming-tip">
-              <h2>What to show</h2>
-              <p>{guidance[claim].video}</p>
-              <p className="muted-copy">Keep faces and personal details out of the frame.</p>
-            </div>
-            <Uploader
-              blocked={generating}
-              getEndpoint={async () =>
-                "cases/" + encodeURIComponent(await ensureDraftCase()) + "/video"
-              }
-              onSending={setSending}
-              onDone={({ id, warnings }) => finish(id, false, warnings?.join(" "))}
-              sendLabel="Send to the shop"
-            />
-            <section className="panel phone-handoff">
-              <QrCode aria-hidden />
-              <h2>Upload from your phone</h2>
-              {handoff ? (
-                <>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={handoff.image}
-                    alt="Scan to upload from your phone"
-                    width="148"
-                    height="148"
-                  />
-                  <p>Scan to choose a video.</p>
-                  <a href={handoff.url} className="text-link">
-                    Open phone upload
-                  </a>
-                </>
-              ) : (
+              <div className="action-row">
+                <Button disabled={deleting || sending || generating} onClick={resume}>
+                  {draft.step === "video" ? "Resume upload" : "Continue report"}
+                </Button>
                 <Button
-                  variant="outline"
-                  disabled={sending || generating}
-                  onClick={generateHandoff}
+                  variant="ghost"
+                  disabled={deleting || sending || generating}
+                  onClick={() => remove(caseId, true)}
                 >
-                  {generating ? "Preparing the code…" : "Show QR code"}
+                  Discard draft
                 </Button>
-              )}
-            </section>
-          </div>
-          {!caseId && (
-            <Button
-              variant="ghost"
-              disabled={sending || generating}
-              onClick={() => {
-                updateDraft({ step: "complaint" });
-                setStep("complaint");
-              }}
-            >
-              <ArrowLeft aria-hidden /> Back to the claim
-            </Button>
+              </div>
+            </ReportRow>
           )}
-        </>
-      )}
-      {view === "sent" && receipt && (
-        <section className="panel receipt">
-          <CircleCheck aria-hidden />
-          <Steps current="sent" />
-          <h1 tabIndex={-1}>
-            {receipt.failed ? "Video received. Checking failed." : "Sent to the shop."}
-          </h1>
-          <div className="order-context">
-            <OrderDetails order={receipt.order} />
-          </div>
-          <p>
-            {claims[receipt.claim]} · Report {receipt.id.slice(0, 8)}
-          </p>
-          <p>
-            {receipt.failed
-              ? reportStates.failed.next
-              : "The shop will reply in My reports. No action is needed right now."}
-          </p>
-          {receipt.warning && (
-            <p className="warning-copy" role="status">
-              {receipt.warning}
-            </p>
-          )}
-          {home === "reports" ? (
-            <Button onClick={() => setStep(undefined)}>
-              View my reports <ArrowRight aria-hidden />
-            </Button>
-          ) : (
-            <Button asChild>
-              <Link href="/reports">
-                View my reports <ArrowRight aria-hidden />
-              </Link>
-            </Button>
-          )}
-        </section>
-      )}
-      {view === "reports" && (
-        <>
-          <h1 tabIndex={-1}>
-            My reports<span className="heading-period">.</span>
-          </h1>
-          {!reports && !loadError && (
-            <p className="loading-row" role="status">
-              Loading your reports…
-            </p>
-          )}
-          {reports?.length === 0 && !draft && (
-            <p className="empty-state">Reports you send to the shop will appear here.</p>
-          )}
-          <ul className="report-list">
-            {draft && (
-              <ReportRow
-                title={draft.order.title}
-                detail={claim ? claims[claim] : "Choose a claim to continue"}
-                badge="Draft"
-              >
-                <div className="action-row">
-                  <Button onClick={resume}>
-                    {draft.step === "video" ? "Resume upload" : "Continue report"}
-                  </Button>
-                  <Button variant="ghost" disabled={deleting} onClick={() => remove(caseId, true)}>
-                    Discard draft
-                  </Button>
-                </div>
-              </ReportRow>
-            )}
-            {reports
-              ?.filter((report) => report.id !== caseId)
-              .map((report) => {
-                const saved = receipts[report.id];
-                const copy = reportStates[report.status];
-                const confirmed = report.status === "sent" && saved;
-                return (
-                  <ReportRow
-                    key={report.id}
-                    title={saved?.order.title ?? "Report " + report.id.slice(0, 8)}
-                    detail={saved && claims[saved.claim] + " · Report " + report.id.slice(0, 8)}
-                    badge={confirmed ? "Sent" : copy.label}
-                  >
-                    <p>
-                      {report.note_for_buyer?.trim() ||
-                        (confirmed ? "No action needed. The shop will reply here." : copy.next)}
-                    </p>
-                    <Button variant="ghost" disabled={deleting} onClick={() => remove(report.id)}>
+          {reports
+            ?.filter((report) => report.id !== caseId)
+            .map((report) => {
+              const saved = receipts[report.id];
+              const copy = reportStates[report.status];
+              const confirmed = report.status === "sent" && saved;
+              const savedClaim = report.claim_type ?? saved?.claim;
+              const expanded = expandedReport === report.id;
+              return (
+                <ReportRow
+                  key={report.id}
+                  id={report.id}
+                  title={
+                    report.product ??
+                    saved?.order?.title ??
+                    saved?.listing?.title ??
+                    "Report " + report.id.slice(0, 8)
+                  }
+                  detail={savedClaim && claims[savedClaim] + " · Report " + report.id.slice(0, 8)}
+                  badge={confirmed ? "Sent" : copy.label}
+                  actionError={
+                    deletionError?.target === report.id ? deletionError.message : undefined
+                  }
+                >
+                  <p>
+                    {report.note_for_buyer?.trim() ||
+                      (confirmed ? "No action needed. The shop will reply here." : copy.next)}
+                  </p>
+                  <div className="action-row">
+                    {sampleMode && (
+                      <Button
+                        variant="outline"
+                        aria-expanded={expanded}
+                        aria-controls={"report-evidence-" + report.id}
+                        onClick={() => setExpandedReport(expanded ? undefined : report.id)}
+                      >
+                        {expanded ? "Hide report details" : "View report details"}
+                      </Button>
+                    )}
+                    <Button
+                      variant="ghost"
+                      disabled={deleting || sending || generating}
+                      onClick={() => remove(report.id)}
+                    >
                       Delete report
                     </Button>
-                  </ReportRow>
-                );
-              })}
-          </ul>
-        </>
-      )}
+                  </div>
+                  {sampleMode && (
+                    <div id={"report-evidence-" + report.id} hidden={!expanded}>
+                      {expanded && <ReportEvidence id={report.id} />}
+                    </div>
+                  )}
+                </ReportRow>
+              );
+            })}
+        </ul>
+      </section>
     </DeskShell>
   );
 }

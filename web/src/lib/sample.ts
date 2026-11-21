@@ -6,7 +6,16 @@ import { readFile, writeFile, unlink } from "node:fs/promises";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { Case, Listing, Order, claims, reasons } from "./models";
+import {
+  type CaseReference,
+  type Claim,
+  type Listing,
+  type Order,
+  type Report,
+  type ShopCase,
+  claims,
+  reasons,
+} from "./models";
 const exec = promisify(execFile);
 const root = path.resolve(process.cwd(), ".."),
   dir = process.env.SAMPLE_DATA_DIR || path.join(root, "data/web-sample");
@@ -63,6 +72,14 @@ const orders: Order[] = [
 ];
 const reply = (value: unknown, status = 200) => Response.json(value, { status });
 const fail = (detail: string, status = 422) => reply({ detail }, status);
+const buyerStatus: Record<ShopCase["status"], Report["status"]> = {
+  awaiting_video: "sent",
+  checking: "checking",
+  ready: "with_shop",
+  decided: "replied",
+  failed: "failed",
+};
+
 export async function sample(req: Request, parts: string[]) {
   const db = database();
   let reservedJob: string | undefined;
@@ -78,17 +95,29 @@ export async function sample(req: Request, parts: string[]) {
       .prepare("SELECT value FROM records WHERE kind=? ORDER BY rowid DESC")
       .all(kind)
       .map((r) => JSON.parse(String(r.value)));
-  const buyer = (c: Case) => ({
+  const listingById = (id: string): Listing | undefined => {
+    if (id === seed.id) return seed;
+    const row = db.prepare("SELECT value FROM records WHERE kind='listing' AND id=?").get(id);
+    return row ? JSON.parse(String(row.value)) : undefined;
+  };
+  const listingFor = (c: ShopCase) =>
+    c.listing_id ? listingById(c.listing_id) : orders.find((o) => o.id === c.order_id)?.listing;
+  const buyer = (c: ShopCase): Report => ({
     id: c.id,
-    status:
-      (
-        { ready: "with_shop", decided: "replied", awaiting_video: "sent" } as Record<string, string>
-      )[c.status] || c.status,
+    status: buyerStatus[c.status],
     note_for_buyer: c.decision?.note_for_buyer ?? null,
+    product: listingFor(c)?.title,
+    claim_type: c.claim_type,
   });
   try {
     if (area === "orders") return reply(orders);
-    if (area === "my") return reply((rows("case") as Case[]).map(buyer));
+    if (area === "my")
+      return reply(
+        (rows("case") as ShopCase[])
+          .filter((c) => c.status !== "awaiting_video")
+          .sort((a, b) => b.created_at.localeCompare(a.created_at))
+          .map(buyer),
+      );
     if (parts.join("/") === "files/listings/sample/tee.png")
       return new Response(new Uint8Array(await readFile(path.join(root, "api/fixtures/tee.png"))), {
         headers: { "Content-Type": "image/png" },
@@ -158,10 +187,11 @@ export async function sample(req: Request, parts: string[]) {
     }
     if (area === "shop" && !action)
       return reply(
-        (rows("case") as Case[]).map((c) => ({
+        (rows("case") as ShopCase[]).map((c) => ({
           id: c.id,
           order_id: c.order_id,
-          product: orders.find((o) => o.id === c.order_id)?.listing.title ?? "Unknown product",
+          listing_id: c.listing_id,
+          product: listingFor(c)?.title ?? "Unknown product",
           claim_type: c.claim_type,
           status: c.status,
           created_at: c.created_at,
@@ -171,14 +201,23 @@ export async function sample(req: Request, parts: string[]) {
         })),
       );
     if (area === "cases" && !key) {
-      const b = await req.json();
-      if (!orders.some((o) => o.id === b.order_id) || !Object.hasOwn(claims, b.claim_type))
-        return fail("Choose a delivered order and claim.");
-      const c = {
+      const b = await req.json().catch(() => null);
+      if (!b || typeof b.claim_type !== "string" || !Object.hasOwn(claims, b.claim_type))
+        return fail("Choose a claim.");
+      const order = b.listing_id === undefined && orders.find((o) => o.id === b.order_id);
+      const listing =
+        b.order_id === undefined && typeof b.listing_id === "string" && listingById(b.listing_id);
+      const source: CaseReference | undefined = order
+        ? { order_id: order.id }
+        : listing
+          ? { listing_id: listing.id }
+          : undefined;
+      if (!source) return fail("Choose a delivered order or an available product.");
+      const c: ShopCase = {
+        ...source,
         id: randomUUID(),
-        order_id: b.order_id,
-        claim_type: b.claim_type,
-        description: b.description,
+        claim_type: b.claim_type as Claim,
+        description: typeof b.description === "string" ? b.description : "",
         status: "awaiting_video",
         created_at: new Date().toISOString(),
       };
@@ -189,15 +228,27 @@ export async function sample(req: Request, parts: string[]) {
       area === "uploads" ? db.prepare("SELECT id FROM tokens WHERE token=?").get(key) : null;
     const id = area === "shop" ? action : area === "uploads" ? String(token?.id || "") : key;
     const record = db.prepare("SELECT value FROM records WHERE kind='case' AND id=?").get(id);
-    const c: Case | undefined = record ? JSON.parse(String(record.value)) : undefined;
+    const c: ShopCase | undefined = record ? JSON.parse(String(record.value)) : undefined;
     if (!c) return fail("This case or upload link is unavailable.", 404);
     if (req.method === "DELETE") {
+      const draft = new URL(req.url).searchParams.get("draft")?.toLowerCase();
+      const onlyDraft = draft !== undefined && ["1", "on", "t", "true", "y", "yes"].includes(draft);
+      if (
+        draft !== undefined &&
+        !onlyDraft &&
+        !["0", "off", "f", "false", "n", "no"].includes(draft)
+      )
+        return fail("Use a boolean value for draft.");
       db.exec("BEGIN IMMEDIATE");
       try {
-        const latest = get(id) as Case | undefined;
+        const latest = get(id) as ShopCase | undefined;
         if (!latest) {
           db.exec("ROLLBACK");
           return fail("Case unavailable", 404);
+        }
+        if (onlyDraft && latest.status !== "awaiting_video") {
+          db.exec("ROLLBACK");
+          return fail("The video has already been received.", 409);
         }
         const file = latest.video_url?.match(/^\/api\/files\/([a-f0-9-]{36})$/)?.[1];
         if (file) {
@@ -359,7 +410,14 @@ export async function sample(req: Request, parts: string[]) {
         });
       return reply({ id, status: "checking", warnings: intake.warnings ?? [] }, 202);
     }
-    return reply(buyer(c));
+    return reply({
+      ...buyer(c),
+      description: c.description,
+      created_at: c.created_at,
+      order_id: c.order_id,
+      listing_id: c.listing_id,
+      video_url: c.video_url ?? null,
+    });
   } finally {
     if (reservedJob) db.prepare("DELETE FROM jobs WHERE id=?").run(reservedJob);
     db.close();

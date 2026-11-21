@@ -4,11 +4,19 @@ import { readFile } from "node:fs/promises";
 const browser = await chromium.launch({ channel: "chrome" });
 const baseURL = process.env.REHEARSAL_URL || "http://127.0.0.1:3000";
 const dir = process.env.REHEARSAL_DIR || "../data/rehearsal";
+
+async function startOrderReport(page) {
+  const order = page.getByRole("button", { name: "Report a problem" });
+  if (!(await order.isVisible()))
+    await page.getByText("Use an existing order", { exact: true }).click();
+  await order.click();
+}
+
 try {
   const desktop = await browser.newPage({ baseURL, viewport: { width: 1300, height: 900 } });
   await desktop.goto("/");
   await desktop.getByText("Continue as buyer").click();
-  await desktop.getByText("Report a problem").click();
+  await startOrderReport(desktop);
   await desktop.getByRole("radio", { name: "Missing items or parts" }).click();
   await desktop.getByText("Continue to video").click();
   const create = desktop.waitForResponse((r) => r.url().endsWith("/api/cases"));
@@ -24,7 +32,8 @@ try {
   assert.equal(await seller.locator('[data-case="' + id + '"]').count(), 0);
   const url = await desktop.getByText("Open phone upload").getAttribute("href");
   await desktop.reload();
-  await desktop.getByText("Resume report").click();
+  await desktop.getByRole("button", { name: "Resume upload", exact: true }).click();
+  await desktop.getByRole("heading", { name: "Add your unboxing video." }).waitFor();
   const phone = await browser.newPage({
     baseURL,
     viewport: { width: 390, height: 844 },
@@ -47,8 +56,8 @@ try {
   assert.equal((await phone.request.post("/api/uploads/" + token, { multipart })).status(), 404);
 
   // Generate a QR in this mounted desk, then complete the report and start another.
-  await desktop.getByRole("link", { name: "Your orders" }).click();
-  await desktop.getByRole("button", { name: "Report a problem" }).click();
+  await desktop.getByRole("link", { name: "Start a claim" }).click();
+  await startOrderReport(desktop);
   await desktop.getByRole("radio", { name: "Damaged item" }).click();
   await desktop.getByRole("button", { name: "Continue to video" }).click();
   const secondCreated = desktop.waitForResponse((response) =>
@@ -63,8 +72,8 @@ try {
     202,
   );
   await desktop.getByRole("heading", { name: "Sent to the shop." }).waitFor();
-  await desktop.getByRole("link", { name: "Your orders" }).click();
-  await desktop.getByRole("button", { name: "Report a problem" }).click();
+  await desktop.getByRole("link", { name: "Start a claim" }).click();
+  await startOrderReport(desktop);
   await desktop.getByRole("radio", { name: "Damaged item" }).click();
   await desktop.getByRole("button", { name: "Continue to video" }).click();
   assert.equal(await desktop.getByText("Open phone upload").count(), 0);
@@ -75,6 +84,10 @@ try {
   const thirdToken = new URL(thirdUrl).pathname.split("/").pop();
   assert.notEqual(thirdToken, secondToken);
 
+  // Hold the polling view one update behind the phone upload.
+  await desktop.route("**/api/cases/" + thirdId, (route) =>
+    route.fulfill({ json: { id: thirdId, status: "sent", note_for_buyer: null } }),
+  );
   await desktop.getByRole("link", { name: "My reports" }).click();
   const confirmDiscard = desktop.waitForEvent("dialog");
   const discard = desktop.getByRole("button", { name: "Discard draft" }).click();
@@ -92,6 +105,13 @@ try {
   await desktop
     .getByText("Your video reached the shop. The report is still in My reports.")
     .waitFor();
+  await desktop.getByRole("heading", { name: "Choose a product or order." }).waitFor();
+  const startAnother = desktop.getByRole("button", { name: "Report a problem" });
+  if (!(await startAnother.isVisible()))
+    await desktop.getByText("Use an existing order", { exact: true }).click();
+  await startAnother.waitFor();
+  const lateDiscard = await phone.request.delete("/api/cases/" + thirdId + "?draft=true");
+  assert.equal(lateDiscard.status(), 409);
   const preserved = await phone.request.get("/api/shop/cases/" + thirdId);
   assert.equal(preserved.status(), 200);
   assert((await preserved.json()).video_url);
@@ -189,12 +209,44 @@ try {
   await desktop.getByText("Add product").click();
   await desktop.getByLabel("Product name").fill("Walkthrough sample");
   await desktop.getByLabel("Price", { exact: true }).fill("75");
+  await desktop.getByRole("button", { name: "Continue", exact: true }).click();
+  await desktop.getByRole("button", { name: "Continue", exact: true }).click();
   await desktop.locator("input[type=file]").setInputFiles(dir + "/screen-01.png");
   await desktop.getByText("Save product").click();
-  await desktop.getByText("Walkthrough sample", { exact: true }).first().waitFor();
+  await desktop.getByRole("heading", { name: "Walkthrough sample.", exact: true }).waitFor();
   console.log(
     "Passed QR handoff and token isolation, discard during phone upload, late seller save, unsure leaning, evidence seek, disagreement validation and product creation.",
   );
+
+  const integrated = process.env.INTEGRATED_REHEARSAL_URL;
+  if (integrated) {
+    const api = (path) => new URL("/api/" + path, integrated).href;
+    const created = await phone.request.post(api("cases"), {
+      data: { order_id: "UJ-48213", claim_type: "damaged" },
+    });
+    assert.equal(created.status(), 201);
+    const { id: caseId } = await created.json();
+    const path = "cases/" + caseId;
+    assert.equal((await (await phone.request.get(api(path))).json()).status, "sent");
+    const handoff = await phone.request.post(api(path + "/upload-link"));
+    assert.equal(handoff.status(), 200);
+    const { token } = await handoff.json();
+    const accepted = await phone.request.post(api("uploads/" + token), { multipart });
+    assert.equal(accepted.status(), 202);
+    assert.match(await (await phone.request.get(api(path + "/events"))).text(), /^event: done/m);
+    assert.equal((await (await phone.request.get(api(path))).json()).status, "with_shop");
+
+    const lateDiscard = await phone.request.delete(api(path + "?draft=1"));
+    assert.equal(lateDiscard.status(), 409);
+    const review = await phone.request.get(api("shop/cases/" + caseId));
+    assert.equal(review.status(), 200);
+    const { video_url } = await review.json();
+    const footage = await phone.request.get(new URL(video_url, integrated).href);
+    assert.equal(footage.status(), 200);
+    assert.deepEqual(await footage.body(), multipart.video.buffer);
+    assert.equal((await phone.request.delete(api(path))).status(), 204);
+    console.log("Passed draft-only deletion through the integrated proxy after a phone upload.");
+  }
 } finally {
   await browser.close();
 }

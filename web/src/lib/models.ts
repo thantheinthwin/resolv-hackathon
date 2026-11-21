@@ -2,8 +2,22 @@ import type { components } from "../api/types";
 type Schema = components["schemas"];
 export type Listing = Schema["Listing"];
 export type Order = Schema["OrderWithListing"];
-export type Report = Schema["BuyerCase"];
+export type Report = Schema["BuyerCase"] & { product?: string; claim_type?: Claim };
+export type ReportDetails = Report & {
+  description?: string;
+  created_at?: Case["created_at"];
+  order_id?: string;
+  listing_id?: string;
+  video_url?: string | null;
+};
 export type Case = Schema["Case"];
+export type CaseReference =
+  | { order_id: string; listing_id?: never }
+  | {
+      order_id?: never;
+      listing_id: string;
+    };
+export type ShopCase = Omit<Case, "order_id"> & CaseReference;
 export type CreatedCase = Schema["CreatedCase"];
 export type UploadLink = Schema["UploadLink"];
 export type UploadResult = Schema["UploadResult"];
@@ -32,4 +46,4 @@ export const labels: Record<string, string> = {
   failed: "Failed",
 };
 
-export type InboxCase = components["schemas"]["ShopSummary"];
+export type InboxCase = Omit<Schema["ShopSummary"], "order_id"> & CaseReference;

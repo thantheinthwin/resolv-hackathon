@@ -52,6 +52,7 @@ try {
       );
     }
     await page.getByRole("link", { name: "Continue as buyer" }).click();
+    await page.getByText("Use an existing order", { exact: true }).click();
     const order = page.getByRole("button", { name: "Report a problem" });
     await order.waitFor();
     await assertFits(page);
@@ -61,8 +62,7 @@ try {
     await page.locator("textarea").fill(description);
     await page.getByRole("button", { name: "Continue to video" }).click();
     await page.getByRole("link", { name: "My reports" }).click();
-    await page.waitForURL("**/reports");
-    await page.getByText("Draft", { exact: true }).waitFor();
+    await page.waitForURL("**/orders#my-reports");
     await page.reload();
     await page.getByText("Draft", { exact: true }).waitFor();
     await page.getByRole("button", { name: "Resume upload" }).click();
@@ -73,35 +73,53 @@ try {
     await page.getByRole("button", { name: "Choose video" }).click();
     await (await chooser).setFiles(join(dir, "sample.mp4"));
     await page.getByRole("button", { name: "Replace video" }).waitFor();
+    await page.getByLabel("Selected video preview").waitFor();
+    const body = page.locator(".claim-frame-body");
+    assert(
+      await body.evaluate((element) => element.scrollHeight <= element.clientHeight + 1),
+      "The phone should scroll the page rather than clip the claim inside a nested scroller",
+    );
+    await assertFits(page);
     const creating = page.waitForResponse(
       (response) => response.url().endsWith("/api/cases") && response.status() === 201,
     );
     await page.getByRole("button", { name: "Send to the shop" }).click();
     const { id } = await (await creating).json();
     await page.getByRole("heading", { name: "Sent to the shop." }).waitFor();
-    await page.getByRole("button", { name: "View my reports" }).click();
-    const report = page.getByRole("listitem").filter({ hasText: id.slice(0, 8) });
+    await page.getByRole("link", { name: "View my reports" }).click();
+    const report = page.locator('[data-report="' + id + '"]');
     await report.getByText(claim, { exact: false }).waitFor();
     assert.equal(
       await report.getByRole("heading", { name: "Everyday cotton tee" }).isVisible(),
       true,
     );
+    await report.getByRole("button", { name: "View report details" }).click();
+    await report.getByLabel("Your unboxing video").waitFor();
+    await report.getByText(description, { exact: true }).waitFor();
+    await assertFits(page);
     await page.screenshot({ path: join(dir, `${name.toLowerCase()}-reports.png`), fullPage: true });
     buyers.push({ page, id, description });
     console.log(
-      `${name}: direct filing, native picker, draft recovery, receipt and report passed.`,
+      `${name}: direct filing, native picker, draft recovery, receipt and report evidence passed.`,
     );
   }
 
   const seller = await android.newPage({ ...devices["Pixel 7"], baseURL });
   await seller.goto("/");
-  await seller.getByRole("button", { name: "Continue as shop owner" }).click();
+  await seller.getByRole("link", { name: "Continue as shop owner" }).click();
   const [first, second] = buyers;
   await seller
     .locator('[data-case="' + first.id + '"]')
     .getByRole("button", { name: "Review case" })
     .click();
   await seller.getByText(first.description).waitFor();
+  await seller.getByRole("button", { name: "Cases in the inbox" }).click();
+  const mobileCaseList = seller.getByRole("complementary", { name: "Case list" });
+  await mobileCaseList
+    .locator('[data-review-case="' + first.id + '"]')
+    .locator('[aria-current="true"]')
+    .waitFor();
+  await seller.getByRole("button", { name: "Cases in the inbox" }).click();
   await assertFits(seller);
   const video = await seller.locator("video").boundingBox();
   const evidence = await seller

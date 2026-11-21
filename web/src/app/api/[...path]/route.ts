@@ -1,4 +1,5 @@
 import { boundedBody } from "../../../lib/request-body";
+import { apiOrigin } from "../../../lib/api-origin";
 
 export const dynamic = "force-dynamic";
 const pathRules: Record<string, RegExp> = {
@@ -14,10 +15,7 @@ async function handle(req: Request, ctx: { params: Promise<{ path: string[] }> }
     !pathRules[req.method]?.test(route)
   )
     return new Response(null, { status: 404 });
-  const origin =
-    process.env.API_ORIGIN ||
-    process.env.API_BASE_URL ||
-    (process.env.DEMO_PASSCODE ? "http://127.0.0.1:8000" : undefined);
+  const origin = apiOrigin();
   let body: ArrayBuffer | undefined;
   if (req.method === "POST") {
     try {
@@ -39,17 +37,19 @@ async function handle(req: Request, ctx: { params: Promise<{ path: string[] }> }
     if (value) headers.set(key, value);
   }
   try {
-    const upstream = await fetch(
-      new URL("/api/" + parts.map(encodeURIComponent).join("/"), origin),
-      {
-        method: req.method,
-        headers,
-        body: body,
-        cache: "no-store",
-        redirect: "error",
-        signal: req.signal,
-      },
-    );
+    const url = new URL("/api/" + parts.map(encodeURIComponent).join("/"), origin);
+    if (req.method === "DELETE") {
+      const draft = new URL(req.url).searchParams.get("draft");
+      if (draft !== null) url.searchParams.set("draft", draft);
+    }
+    const upstream = await fetch(url, {
+      method: req.method,
+      headers,
+      body,
+      cache: "no-store",
+      redirect: "error",
+      signal: req.signal,
+    });
     const out = new Headers();
     for (const key of ["content-type", "content-range", "accept-ranges"]) {
       const value = upstream.headers.get(key);
