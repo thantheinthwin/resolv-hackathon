@@ -85,6 +85,9 @@ class IntegrityReport(StrictModel):
         return bool(self.flags) or any(check.status == "unclear" for check in self.checks.values())
 
 
+# fmt: on
+
+
 def _check_frames(frames: Sequence[SanitizedFrame]) -> None:
     previous = -1.0
     for frame in frames:
@@ -124,9 +127,6 @@ def _phash(gray: np.ndarray) -> np.ndarray:
     dct = cv2.dct(small.astype(np.float32))[:8, :8]
     threshold = float(np.median(dct.ravel()[1:]))
     return (dct > threshold).ravel()
-
-
-# fmt: on
 
 
 def _continuity(frames: Sequence[SanitizedFrame]) -> tuple[IntegrityCheck, list[IntegrityFlag]]:
