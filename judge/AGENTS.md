@@ -145,7 +145,9 @@ purchased model is known. A compatibility mention in a listing description
 cannot establish that model. The color check needs an ordered color and
 clear neutral lighting. If photos disagree on the attribute, more evidence is needed.
 The reason names the numbered photo in `buyer_photos`. Keep `photo_findings`
-and the referenced JPEGs private to the shop. Saved `needs_human_check`
+and the referenced JPEGs private to the shop. The normalized comparison
+attributes stay in the private manifest. The current shop API photo finding
+carries the JPEG reference, check, status, and bilingual notes. Saved `needs_human_check`
 feedback is read as `needs_more_evidence` with its existing reason.
 
 Completed video-only jobs and the local integrity path also publish a

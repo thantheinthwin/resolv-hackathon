@@ -108,13 +108,16 @@ class PhotoDetail(BaseModel):
 
     check: ComparisonName
     status: Literal["pass", "flag"]
-    visible_attribute: PhotoAttribute | None = None
-    attribute_values: PhotoAttributeValues | None = None
     note_en: str = Field(min_length=1, max_length=250)
     note_th: str = Field(min_length=1, max_length=250)
 
 
-class PhotoObservation(PhotoDetail):
+class PhotoComparison(PhotoDetail):
+    visible_attribute: PhotoAttribute | None = None
+    attribute_values: PhotoAttributeValues | None = None
+
+
+class PhotoObservation(PhotoComparison):
     photo_index: int = Field(ge=0, lt=MAX_BUYER_PHOTOS)
 
 
@@ -130,6 +133,10 @@ class PhotoFinding(PhotoDetail):
     photo: BuyerPhotoRef
 
 
+class ReviewedPhotoFinding(PhotoFinding, PhotoComparison):
+    """Grounded photo with the private comparison fields used for feedback."""
+
+
 class SubmissionResult(BaseModel):
     """Worker output for a submission. Photo references are separate from timed findings."""
 
@@ -138,7 +145,7 @@ class SubmissionResult(BaseModel):
     verdict: Verdict
     video_status: VideoStatus
     buyer_photos: list[BuyerPhotoRef] = Field(max_length=MAX_BUYER_PHOTOS)
-    photo_findings: list[PhotoFinding]
+    photo_findings: list[ReviewedPhotoFinding]
     complaint: ComplaintAssessment | None
     feedback: ComplaintFeedback | None = None
 
@@ -251,7 +258,7 @@ def _match_photos(
 
 
 def _photo_catalogue(
-    inputs: SubmissionInputs, findings: list[PhotoFinding]
+    inputs: SubmissionInputs, findings: list[ReviewedPhotoFinding]
 ) -> dict[int, PhotoComplaintFinding]:
     catalogue: dict[int, PhotoComplaintFinding] = {}
     for index, finding in enumerate(findings):
@@ -279,7 +286,7 @@ def _photo_catalogue(
 def _wrong_item_photo_feedback(
     inputs: SubmissionInputs,
     complaint: ComplaintAssessment | None,
-    findings: list[PhotoFinding],
+    findings: list[ReviewedPhotoFinding],
     catalogue: dict[int, PhotoComplaintFinding],
     photo_indices: dict[str, int],
 ) -> ComplaintFeedback:
@@ -503,7 +510,7 @@ def run_submission(
         except NoSharpFrames:
             video_status = "no_usable_frames"
 
-    photo_findings: list[PhotoFinding] = []
+    photo_findings: list[ReviewedPhotoFinding] = []
     reviewed_photos: dict[str, bytes] = {}
     if buyer_photos:
         request = _photo_review(inputs, buyer_photos)
@@ -515,7 +522,7 @@ def run_submission(
         photos = request.images[: len(buyer_photos)]
         reviewed_photos = dict(photos)
         photo_findings = [
-            PhotoFinding(
+            ReviewedPhotoFinding(
                 **finding.model_dump(exclude={"photo_index"}), photo=photos[finding.photo_index][0]
             )
             for finding in matches.findings

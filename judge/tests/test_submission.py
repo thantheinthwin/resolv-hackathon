@@ -12,6 +12,7 @@ import pytest
 
 from api.app.contracts import ProgressEvent, Verdict
 from api.app.sample import LISTING, ORDER
+from api.app.views import ShopCase
 from judge import ReviewRequest, ReviewRequired
 from judge.intake import IntakeError
 from judge.matching import ReviewedListingPhoto
@@ -557,6 +558,20 @@ def test_verified_order_and_clear_photo_can_decide_a_specific_complaint(
     [finding] = result.photo_findings
     assert finding.visible_attribute == attribute
     assert finding.photo in result.buyer_photos and (tmp_path / finding.photo).is_file()
+    shop_case = ShopCase(
+        id=result.verdict.case_id,
+        order_id=ORDER.id,
+        claim_type="wrong_item",
+        description=description,
+        status="ready",
+        created_at=ORDER.delivered_at,
+        buyer_photo_count=1,
+        verdict=result.verdict,
+        photo_findings=list(result.photo_findings),
+    )
+    [shop_finding] = shop_case.model_dump()["photo_findings"]
+    assert set(shop_finding) == {"photo", "check", "status", "note_en", "note_th"}
+    assert shop_finding["photo"] == finding.photo
     assert result.verdict.evidence == []
     assert len(responses.calls) == 2
     assert description not in str(responses.calls[0])
