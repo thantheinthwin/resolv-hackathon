@@ -1,6 +1,7 @@
 """Tests-first contract for privacy-reviewed, unbiased OpenAI visual observation."""
 
 from collections.abc import Sequence
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
@@ -177,7 +178,11 @@ def test_frame_limit_keeps_first_and_last_timestamps() -> None:
     assert f"t={float(len(frames) - 1):.3f}" in " ".join(text_parts)
 
 
-def test_without_injected_client_require_env_vars(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_without_injected_client_require_env_vars(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The developer may have a real ignored .env: isolate this test from it.
+    monkeypatch.setattr("judge.config.ENV_FILE", tmp_path / ".env")
     monkeypatch.delenv("OPENAI_MODEL", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     with pytest.raises(VisionError, match="OPENAI_MODEL"):
