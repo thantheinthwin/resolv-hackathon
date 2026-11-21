@@ -359,7 +359,7 @@ def create_app(data_dir: Path | None = None, judge: Judge | None = None) -> Fast
             ):
                 asset = store.root / "cases" / case.id / ref
                 if asset.is_file():
-                    return FileResponse(asset, media_type="image/png")
+                    return FileResponse(asset)
         if len(parts) == 3 and parts[0] == "cases" and parts[2] == "video.mp4":
             with store.connection() as db:
                 case = get_case(db, parts[1])

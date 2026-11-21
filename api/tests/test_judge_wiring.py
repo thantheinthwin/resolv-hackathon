@@ -10,7 +10,7 @@ from api.app.contracts import Verdict
 from api.app.judging import CaseJudge
 from api.app.store import Store
 from api.main import create_app
-from judge import complaint, matching, reasons, vision
+from judge import ReviewRequest, complaint, matching, reasons, text_model, vision
 
 
 def test_reviewed_upload_publishes_grounded_evidence(
@@ -26,7 +26,7 @@ def test_reviewed_upload_publishes_grounded_evidence(
             schema = kwargs["text_format"]
             calls.append(schema)
             if schema is vision.VisionObservation:
-                assert approvals == ["visual"]
+                assert approvals == ["visual", "visual"]
                 answer = {"status": "observed", "findings": [], "note_en": "Visible product."}
             elif schema is matching.MatchResponse:
                 answer = {
@@ -38,22 +38,21 @@ def test_reviewed_upload_publishes_grounded_evidence(
                     "note_en": "Compared.",
                 }
             elif schema is complaint.ComplaintSelection:
-                assert approvals == ["visual", "text"]
+                assert approvals == ["visual", "visual", "complaint"]
                 answer = {"confidence": 0.9, "allegations": []}
             else:
                 assert schema is reasons.ReasonSelection
-                assert approvals == ["visual", "text"]
+                assert approvals == ["visual", "visual", "complaint", "reason"]
                 answer = {"finding_id": 0}
             return SimpleNamespace(output_parsed=answer)
 
     transport = SimpleNamespace(responses=Transport())
-    for module in (matching, vision, complaint, reasons):
+    for module in (matching, vision, text_model):
         monkeypatch.setattr(module, "_client_from_environment", lambda: transport)
 
-    def approve(stage: str, files: dict[str, bytes]) -> bool:
-        assert ("complaint.txt" in files) == (stage == "text")
-        assert ("frames/0.png" in files) == (stage == "visual")
-        approvals.append(stage)
+    def approve(request: ReviewRequest) -> bool:
+        assert bool(request.images) == (request.stage == "visual")
+        approvals.append(request.stage)
         return True
 
     video = tmp_path / "clip.mp4"
@@ -69,7 +68,7 @@ def test_reviewed_upload_publishes_grounded_evidence(
         ).json()["id"]
         worker = CaseJudge(Store(tmp_path))
         prepared = worker.prepare(case_id, video, approve)
-        assert prepared.evidence and approvals == ["visual", "text"]
+        assert prepared.evidence and approvals == ["visual", "visual", "complaint", "reason"]
         assert reasons.ReasonSelection in calls
         # A different byte stream for the same case must not inherit approval.
         changed = tmp_path / "other" / case_id
@@ -96,7 +95,7 @@ def test_reviewed_upload_publishes_grounded_evidence(
         assert "verdict" not in client.get(url).json()
         for ref in (prepared.evidence[0].frame, prepared.evidence[0].listing_photo):
             response = client.get(f"/api/files/cases/{case_id}/{ref}")
-            assert response.status_code == 200 and response.content.startswith(b"\x89PNG")
+            assert response.status_code == 200 and response.content.startswith(b"\xff\xd8")
         assert client.get(f"/api/files/cases/{case_id}/frames/missing.png").status_code == 404
         with pytest.raises(ValueError, match="before an upload"):
             worker.prepare(case_id, video, approve)
@@ -108,8 +107,8 @@ def test_reviewed_upload_publishes_grounded_evidence(
         ).json()["id"]
         approvals.clear()
 
-        def race(stage: str, files: dict[str, bytes]) -> bool:
-            if stage == "visual":
+        def race(request: ReviewRequest) -> bool:
+            if not approvals:
                 assert (
                     client.post(
                         f"/api/cases/{racing}/video",
@@ -117,7 +116,7 @@ def test_reviewed_upload_publishes_grounded_evidence(
                     ).status_code
                     == 202
                 )
-            return approve(stage, files)
+            return approve(request)
 
         with pytest.raises(ValueError, match="before an upload"):
             worker.prepare(racing, video, race)

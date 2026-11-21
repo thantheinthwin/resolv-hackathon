@@ -16,8 +16,8 @@ The two contracts are where our work meets. PLAN.md section 6 has every field.
 - For model-backed judging, create the case, configure the judge as described
   in [judge security](../judge/SECURITY.md), then run
   `.venv/bin/python -m api.review_video CASE_ID VIDEO` on the API host before
-  uploading. Inspect the sanitized frames, listing photos and order details at
-  the first prompt, and complaint and finding text at the second. Decline if
+  uploading. Inspect the sanitized frames, listing photos and order details and
+  approve each requested scope, including observation, complaint and reason text. Decline if
   personal data remains. Use only consented recordings. The job reuses this
   reviewed result for the same case, recording and catalog inputs. Another
   recording takes the local-only path. Without a grounded opening observation

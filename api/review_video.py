@@ -8,13 +8,17 @@ from api.app.judging import CaseJudge
 from api.app.store import Store
 
 
-def review(stage: str, files: dict[str, bytes]) -> bool:
+from judge import ReviewRequest
+
+
+def review(request: ReviewRequest) -> bool:
     with TemporaryDirectory(prefix="judge-review-") as tmp:
-        for name, data in files.items():
+        (Path(tmp) / "context.txt").write_text(request.text, encoding="utf-8")
+        for name, data in request.images:
             path = Path(tmp) / name
             path.parent.mkdir(exist_ok=True)
             path.write_bytes(data)
-        print(f"Inspect every file in {tmp} for personal data ({stage} stage).")
+        print(f"Inspect every file in {tmp} for personal data ({request.stage} stage).")
         if input("Approve these exact inputs for external processing? Type APPROVE: ") != "APPROVE":
             raise SystemExit("Review stopped.")
     return True

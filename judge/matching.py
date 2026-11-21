@@ -114,13 +114,19 @@ def _cache_file(folder: Path, key: str) -> Path:
     return folder / f"{key}.json"
 
 
-def _cached_check(folder: Path, key: str, timestamps: Sequence[float]) -> Check | None:
+def _read_cache[Result: BaseModel](folder: Path, key: str, schema: type[Result]) -> Result | None:
     file = _cache_file(folder, key)
     if file.is_symlink():
         return None
     try:
-        check = Check.model_validate_json(file.read_bytes())
+        return schema.model_validate_json(file.read_bytes())
     except (OSError, ValueError):
+        return None
+
+
+def _cached_check(folder: Path, key: str, timestamps: Sequence[float]) -> Check | None:
+    check = _read_cache(folder, key, Check)
+    if check is None:
         return None
     if any(finding.t not in timestamps for finding in check.findings):
         return None
@@ -129,7 +135,7 @@ def _cached_check(folder: Path, key: str, timestamps: Sequence[float]) -> Check 
     return check
 
 
-def _write_cache(folder: Path, key: str, result: Check) -> None:
+def _write_cache(folder: Path, key: str, result: BaseModel) -> None:
     file = _cache_file(folder, key)
     if file.is_symlink():
         raise MatchError("Refusing to replace a symlinked cache entry.")
@@ -221,6 +227,18 @@ def _compare_one(
     return _unclear()
 
 
+def _listing_context(listing: Listing, order: Order) -> dict[str, object]:
+    """Product and order fields permitted in a comparison request."""
+    return {
+        "title": listing.title,
+        "description": listing.description,
+        "box_contents": listing.box_contents,
+        "ordered_color": order.variant.color,
+        "ordered_size": order.variant.size,
+        "ordered_quantity": order.quantity,
+    }
+
+
 def compare_listing(
     frames: Sequence[SanitizedFrame],
     observation: VisionObservation,
@@ -266,12 +284,7 @@ def compare_listing(
         }
     )
     listing_data = {
-        "title": listing.title,
-        "description": listing.description,
-        "box_contents": listing.box_contents,
-        "ordered_color": order.variant.color,
-        "ordered_size": order.variant.size,
-        "ordered_quantity": order.quantity,
+        **_listing_context(listing, order),
         "video_observations": grounded.model_dump(mode="json"),
     }
     text = (
