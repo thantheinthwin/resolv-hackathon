@@ -1,4 +1,3 @@
-# fmt: off
 """Conservative unboxing-video integrity checks on privacy-sanitized frames.
 
 Continuity is a heuristic signal, not proof of editing or authenticity. Seal
@@ -25,18 +24,13 @@ MIN_JUMP_SCORE = 0.05
 MIN_PHASH_DISTANCE = 20
 GROUNDING_TOLERANCE_SECONDS = 0.05
 OPENING_WINDOW_SECONDS = 10.0
-NO_CUT_PROOF = (
-    "No strong scene change in the sampled frames. "
-    "This does not prove the video is unedited."
-)
+NO_CUT_PROOF = "No strong scene change in the sampled frames. "
+NO_CUT_PROOF += "This does not prove the video is unedited."
 CheckStatus = Literal["pass", "flag", "unclear"]
 
 
 class IntegrityError(ValueError):
     """Input frames have not met the integrity checker contract."""
-
-
-# fmt: on
 
 
 class StrictModel(BaseModel):
