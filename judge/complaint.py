@@ -68,10 +68,13 @@ class FindingReference(BaseModel):
 
 
 class GroundedAllegation(BaseModel):
+    """References selected from existing checks for a buyer's allegation."""
+
     model_config = STRICT
 
     kind: AllegationKind
     evidence: list[FindingReference]
+    candidates: list[FindingReference]
 
 
 class ComplaintAssessment(BaseModel):
@@ -97,10 +100,15 @@ def _resolve(
             for index, (check, finding) in enumerate(catalogue)
             if check == CHECKS[kind] and index in ids
         )
+        check_name = CHECKS[kind]
+        references = [FindingReference(check=check_name, t=t) for t in times]
+        # The combined variant check has no typed colour-versus-size finding metadata.
+        variant = check_name == "variant"
         allegations.append(
             GroundedAllegation(
                 kind=kind,
-                evidence=[FindingReference(check=CHECKS[kind], t=t) for t in times],
+                evidence=[] if variant else references,
+                candidates=references if variant else [],
             )
         )
     return ComplaintAssessment(
