@@ -30,7 +30,7 @@ Do not run `cat .env`, include keys in `git diff`, or use `git add -f`.
 Rotate the key immediately if it appears in a commit or public log.
 
 The judge loads only `OPENAI_API_KEY` and `OPENAI_MODEL` from the root `.env`
-using `python-dotenv`. Exported Codespaces environment variables take
+using a minimal standard-library parser. Exported Codespaces variables take
 priority. The file must not be a symlink and must not grant group/other
 permissions. No actual key is required for offline mocked tests.
 
