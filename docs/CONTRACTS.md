@@ -10,20 +10,24 @@ The two contracts are where our work meets. PLAN.md section 6 has every field.
 - **The API** (API to web): FastAPI's OpenAPI spec is the source of truth.
   After any API change, run `npm run gen:api` in `web/` to regenerate
   `web/src/api/types.ts`. Never edit that file by hand.
-- Upload jobs sample and sanitize the recording and run local integrity checks.
-  With no reviewed model inputs, comparisons stay unclear. The seeded sample
-  case still uses the fixture.
-- For model-backed judging, create the case, configure the judge as described
-  in [judge security](../judge/SECURITY.md), then run
-  `.venv/bin/python -m api.review_video CASE_ID VIDEO` on the API host before
-  uploading. Inspect the sanitized frames, listing photos and order details and
-  approve each requested scope, including observation, complaint and reason text. Decline if
-  personal data remains. Use only consented recordings. The job reuses this
-  reviewed result for the same case, recording and catalog inputs. Another
-  recording takes the local-only path. Without a grounded opening observation
-  the seal remains unclear and the verdict requires human review.
-- Evidence paths in a verdict are relative to `/api/files/cases/{case_id}/`.
-  The protected file route serves only the images referenced by that verdict.
+- Uploaded recordings run local integrity checks. With an OpenAI key and model
+  configured, an upload without a matching pre-reviewed verdict waits for explicit
+  review of each outbound scope. The buyer sees `checking` during review.
+- Shop routes and listing creation require both `X-Demo-Passcode` and `X-Shop-Passcode`. Keep their
+  server-side secrets distinct. The shop can fetch the current preview with
+  `GET /api/shop/cases/{id}/review`. POST its `upload_id`, `stage`, and
+  `fingerprint` to the same route suffixed with `/approve` or `/decline`.
+  On the API host, run `.venv/bin/python -m api.review_pending CASE_ID`
+  to inspect and respond to each pending stage. Approval resumes the case. Declining ends the job and allows a replacement.
+- To inspect a parcel seal locally, create a case, run
+  `.venv/bin/python -m api.review_video CASE_ID VIDEO` on the API host, then
+  upload that same video. The opening inspector keeps the raw frame and order
+  code local. An unassessed seal keeps the verdict unsure.
+- Evidence paths are relative to `/api/shop/cases/{case_id}/evidence/`.
+  The existing `/api/files/cases/{case_id}/` image links require the same shop
+  credentials. Both routes serve only images referenced by the published verdict.
+- Case creation returns HTTP 429 after 50 cases total or 10 from one client IP
+  in a UTC day. Deleting a case does not restore its quota.
 - Never rename or remove a contract field to fix one bug. Say it in the team
   chat first.
 

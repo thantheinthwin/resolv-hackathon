@@ -113,57 +113,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/shop/cases": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Inbox */
-        get: operations["inbox_api_shop_cases_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/shop/cases/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Shop Case */
-        get: operations["shop_case_api_shop_cases__id__get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/shop/cases/{id}/decision": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Decide */
-        post: operations["decide_api_shop_cases__id__decision_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/cases/{id}/events": {
         parameters: {
             query?: never;
@@ -255,6 +204,128 @@ export interface paths {
         get: operations["media_api_files__path__get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/shop/cases": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Inbox */
+        get: operations["inbox_api_shop_cases_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/shop/cases/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Shop Case */
+        get: operations["shop_case_api_shop_cases__id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/shop/cases/{id}/decision": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Decide */
+        post: operations["decide_api_shop_cases__id__decision_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/shop/cases/{id}/evidence/{asset}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Evidence
+         * @description Return a reviewed image referenced by this case's published verdict.
+         */
+        get: operations["evidence_api_shop_cases__id__evidence__asset__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/shop/cases/{id}/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Pending Review */
+        get: operations["pending_review_api_shop_cases__id__review_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/shop/cases/{id}/review/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approve */
+        post: operations["approve_api_shop_cases__id__review_approve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/shop/cases/{id}/review/decline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Decline */
+        post: operations["decline_api_shop_cases__id__review_decline_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -442,6 +513,22 @@ export interface components {
             buyer_name: string;
             listing: components["schemas"]["Listing"];
         };
+        /** PendingReview */
+        PendingReview: {
+            /** Upload Id */
+            upload_id: string;
+            /**
+             * Stage
+             * @enum {string}
+             */
+            stage: "visual" | "observation" | "complaint" | "reason";
+            /** Fingerprint */
+            fingerprint: string;
+            /** Text */
+            text: string;
+            /** Images */
+            images: components["schemas"]["ReviewImage"][];
+        };
         /** ProgressEvent */
         ProgressEvent: {
             /**
@@ -458,6 +545,25 @@ export interface components {
             en: string;
             /** Th */
             th: string;
+        };
+        /** ReviewIdentity */
+        ReviewIdentity: {
+            /** Upload Id */
+            upload_id: string;
+            /**
+             * Stage
+             * @enum {string}
+             */
+            stage: "visual" | "observation" | "complaint" | "reason";
+            /** Fingerprint */
+            fingerprint: string;
+        };
+        /** ReviewImage */
+        ReviewImage: {
+            /** Name */
+            name: string;
+            /** Jpeg Base64 */
+            jpeg_base64: string;
         };
         /** ShopSummary */
         ShopSummary: {
@@ -673,6 +779,7 @@ export interface operations {
             query?: never;
             header: {
                 "x-demo-passcode": string;
+                "x-shop-passcode"?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -752,6 +859,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
         };
@@ -838,107 +954,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BuyerCase"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    inbox_api_shop_cases_get: {
-        parameters: {
-            query?: never;
-            header: {
-                "x-demo-passcode": string;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ShopSummary"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    shop_case_api_shop_cases__id__get: {
-        parameters: {
-            query?: never;
-            header: {
-                "x-demo-passcode": string;
-            };
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Case"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    decide_api_shop_cases__id__decision_post: {
-        parameters: {
-            query?: never;
-            header: {
-                "x-demo-passcode": string;
-            };
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["Decision"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Case"];
                 };
             };
             /** @description Validation Error */
@@ -1171,6 +1186,7 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
+                "x-shop-passcode"?: string | null;
                 "x-demo-passcode": string;
             };
             path: {
@@ -1195,6 +1211,249 @@ export interface operations {
                     "video/x-matroska": unknown;
                     "video/x-msvideo": unknown;
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    inbox_api_shop_cases_get: {
+        parameters: {
+            query?: never;
+            header: {
+                "x-demo-passcode": string;
+                "x-shop-passcode"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShopSummary"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    shop_case_api_shop_cases__id__get: {
+        parameters: {
+            query?: never;
+            header: {
+                "x-demo-passcode": string;
+                "x-shop-passcode"?: string | null;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Case"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    decide_api_shop_cases__id__decision_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "x-demo-passcode": string;
+                "x-shop-passcode"?: string | null;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Decision"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Case"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    evidence_api_shop_cases__id__evidence__asset__get: {
+        parameters: {
+            query?: never;
+            header: {
+                "x-demo-passcode": string;
+                "x-shop-passcode"?: string | null;
+            };
+            path: {
+                id: string;
+                asset: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    pending_review_api_shop_cases__id__review_get: {
+        parameters: {
+            query?: never;
+            header: {
+                "x-demo-passcode": string;
+                "x-shop-passcode"?: string | null;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PendingReview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    approve_api_shop_cases__id__review_approve_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "x-demo-passcode": string;
+                "x-shop-passcode"?: string | null;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReviewIdentity"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    decline_api_shop_cases__id__review_decline_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "x-demo-passcode": string;
+                "x-shop-passcode"?: string | null;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReviewIdentity"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

@@ -2,25 +2,17 @@
 
 import argparse
 from pathlib import Path
-from tempfile import TemporaryDirectory
 
 from api.app.judging import CaseJudge
+from api.app.review_prompt import review_choice
 from api.app.store import Store
-
-
 from judge import ReviewRequest
+from judge.opening_review import prompt_opening_review
 
 
 def review(request: ReviewRequest) -> bool:
-    with TemporaryDirectory(prefix="judge-review-") as tmp:
-        (Path(tmp) / "context.txt").write_text(request.text, encoding="utf-8")
-        for name, data in request.images:
-            path = Path(tmp) / name
-            path.parent.mkdir(exist_ok=True)
-            path.write_bytes(data)
-        print(f"Inspect every file in {tmp} for personal data ({request.stage} stage).")
-        if input("Approve these exact inputs for external processing? Type APPROVE: ") != "APPROVE":
-            raise SystemExit("Review stopped.")
+    if review_choice(request) != "approve":
+        raise SystemExit("Review stopped.")
     return True
 
 
@@ -30,7 +22,9 @@ def main() -> None:
     parser.add_argument("video", type=Path)
     parser.add_argument("--data-dir", type=Path, default=Path("data"))
     args = parser.parse_args()
-    verdict = CaseJudge(Store(args.data_dir)).prepare(args.case_id, args.video, review)
+    verdict = CaseJudge(Store(args.data_dir)).prepare(
+        args.case_id, args.video, review, opening_review=prompt_opening_review
+    )
     print(f"Prepared {verdict.case_id}. Upload the same recording to this case.")
 
 

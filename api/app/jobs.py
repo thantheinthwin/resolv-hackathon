@@ -14,9 +14,22 @@ from fastapi import HTTPException
 
 from api.app.contracts import Case, ProgressEvent, Verdict
 from api.app.fake import Judge
+from api.app.reviews import initialize_reviews, reset_reviews
 from api.app.store import Store, case_for_upload_link, get_case, save_case
+from judge import ReviewRequired
 
 log = logging.getLogger(__name__)
+
+
+def persist_progress(store: Store, case_id: str, event: ProgressEvent) -> None:
+    """Publish a worker stage once, including when a reviewed job replays it."""
+    if event.event not in {"started", "finished"} or not event.step:
+        raise ValueError("The judge can only publish stage progress.")
+    with store.transaction() as db:
+        case = get_case(db, case_id)
+        if case.status == "checking" and event not in case.progress:
+            case.progress.append(event)
+            save_case(db, case)
 
 
 @contextmanager
@@ -48,6 +61,10 @@ class JobRunner:
         self.store = store
         self.judge = judge
         self._lifecycle = Lock()
+        self._dispatch = Lock()
+        # An approval can arrive while the worker is still unwinding ReviewRequired.
+        # Keep that wakeup and coalesce repeats without running two jobs on one upload.
+        self._scheduled: dict[str, bool] = {}
         self._resources = ExitStack()
         self._pool: ThreadPoolExecutor | None = None
 
@@ -63,6 +80,7 @@ class JobRunner:
                 ThreadPoolExecutor(max_workers=2, thread_name_prefix="case")
             )
             with self.store.transaction() as db:
+                initialize_reviews(db)
                 # This journal distinguishes a committed replacement (including one
                 # that subsequently failed judging) from a rolled-back upload.
                 db.execute("CREATE TABLE IF NOT EXISTS replaced_uploads (case_id TEXT PRIMARY KEY)")
@@ -72,6 +90,9 @@ class JobRunner:
                     if backup.exists():
                         shutil.rmtree(backup)
                 db.execute("DELETE FROM replaced_uploads")
+                pending_reviews = {
+                    row[0] for row in db.execute("SELECT case_id FROM pending_reviews")
+                }
                 rows = db.execute("SELECT id, json_extract(body,'$.status') FROM cases").fetchall()
             for case_id, status in rows:
                 folder = self._case_dir(case_id)
@@ -85,8 +106,8 @@ class JobRunner:
                 if status == "awaiting_video" and (folder / "video.mp4").is_file():
                     # An initial upload was installed but its transaction rolled back.
                     shutil.rmtree(folder)
-                if status == "checking":
-                    pool.submit(self._run, case_id, True)
+                if status == "checking" and case_id not in pending_reviews:
+                    self._schedule(pool, case_id, True)
             self._resources = startup.pop_all()
             self._pool = pool
 
@@ -129,6 +150,7 @@ class JobRunner:
                     )
                     if claim.rowcount != 1:
                         raise HTTPException(409, "The case already has an accepted upload.")
+                    reset_reviews(db, case_id)
                     # Both desktop and phone acceptance revoke the link. Rollback
                     # leaves it usable if the upload cannot be durably installed.
                     db.execute("DELETE FROM upload_links WHERE case_id=?", (case_id,))
@@ -153,7 +175,7 @@ class JobRunner:
                 if previous is not None:
                     previous.replace(folder)
                 raise
-            self._pool.submit(self._run, case_id, False)
+            self._schedule(self._pool, case_id, False)
             if previous is not None:
                 try:
                     shutil.rmtree(previous)
@@ -161,6 +183,36 @@ class JobRunner:
                         db.execute("DELETE FROM replaced_uploads WHERE case_id=?", (case_id,))
                 except (OSError, sqlite3.Error):
                     log.exception("Will retry retired upload cleanup at startup for %s", case_id)
+
+    def resume(self, case_id: str) -> None:
+        """Wake a checking job after a reviewer has committed their decision."""
+        with self._lifecycle:
+            if self._pool is None:
+                raise HTTPException(503, "The job runner is unavailable.")
+            self._schedule(self._pool, case_id, False)
+
+    def _schedule(self, pool: ThreadPoolExecutor, case_id: str, recovering: bool) -> None:
+        with self._dispatch:
+            if case_id in self._scheduled:
+                self._scheduled[case_id] = True
+                return
+            self._scheduled[case_id] = False
+            pool.submit(self._drain, case_id, recovering)
+
+    def _drain(self, case_id: str, recovering: bool) -> None:
+        while True:
+            try:
+                self._run(case_id, recovering)
+            except Exception as error:
+                # A storage error can prevent even the failure status being saved.
+                # Startup will recover a case that is still checking.
+                log.error("Could not update job %s (%s)", case_id, type(error).__name__)
+            with self._dispatch:
+                if not self._scheduled[case_id]:
+                    del self._scheduled[case_id]
+                    return
+                self._scheduled[case_id] = False
+            recovering = False
 
     def _run(self, case_id: str, recovering: bool) -> None:
         folder = self._case_dir(case_id)
@@ -199,8 +251,13 @@ class JobRunner:
                         [ProgressEvent(event="finished", step="judge"), ProgressEvent(event="done")]
                     )
                     save_case(db, case)
-        except Exception:
-            log.exception("Judge job failed for %s", case_id)
+        except ReviewRequired:
+            # The private review request is durable. Keep checking until its
+            # approval endpoint schedules a new run or the API restarts.
+            return
+        except Exception as error:
+            # Provider and validation errors can include private request content.
+            log.error("Judge job failed for %s (%s)", case_id, type(error).__name__)
             with self.store.transaction() as db:
                 case = get_case(db, case_id)
                 if case.status == "checking":

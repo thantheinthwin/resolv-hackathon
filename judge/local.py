@@ -3,22 +3,28 @@
 from pathlib import Path
 from time import monotonic
 
-from api.app.contracts import Check, ClaimType, Step, Verdict
+from api.app.contracts import Check, ClaimType, ProgressEvent, Step, Verdict
 from judge.integrity import assess_integrity
 from judge.matching import CHECK_NAMES
-from judge.pipeline import write_atomically
+from judge.pipeline import Progress, write_atomically
 from judge.privacy import sanitize_frames
 from judge.sampling import NoSharpFrames, sample_frames
 from judge.verdict import decide_verdict
 
 
-def run_local(directory: Path, claim_type: ClaimType, order_id: str) -> Verdict:
+def run_local(
+    directory: Path, claim_type: ClaimType, order_id: str, *, progress: Progress | None = None
+) -> Verdict:
     started = monotonic()
+    if progress is not None:
+        progress(ProgressEvent(event="started", step="sampling"))
     try:
         frames = sanitize_frames(sample_frames(directory / "video.mp4"))
     except NoSharpFrames:
         frames = []
     integrity = assess_integrity(frames, expected_order_id=order_id)
+    if progress is not None:
+        progress(ProgressEvent(event="finished", step="sampling"))
     steps = [
         Step(
             name="sampling",

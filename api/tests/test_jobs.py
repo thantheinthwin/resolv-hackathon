@@ -218,7 +218,6 @@ def test_crashed_intake_cleanup_requires_exclusive_ownership(store: Store) -> No
     runner = JobRunner(store, FakeJudge())
     runner.start()
     incoming = store.root / ".incoming"
-    incoming.mkdir()
     orphan = incoming / "test.upload"
     orphan.write_bytes(b"interrupted")
     other = incoming / "readme.txt"
@@ -265,3 +264,77 @@ def test_cleanup_failure_does_not_lose_job_or_restore_stale_upload(
     runner.close()
     assert (folder / "video.mp4").read_bytes() == b"latest"
     assert not (store.root / ".replaced/retry").exists()
+
+
+def test_approval_during_pause_wakes_worker_once(store: Store) -> None:
+    from api.app.contracts import ProgressEvent
+    from api.app.jobs import persist_progress
+    from judge import ReviewRequired
+
+    pending = Event()
+    release = Event()
+
+    class ReviewingJudge(FakeJudge):
+        calls = 0
+
+        def run(self, folder: Path) -> Verdict:
+            self.calls += 1
+            persist_progress(store, folder.name, ProgressEvent(event="started", step="privacy"))
+            if self.calls == 1:
+                # Approval may commit before the worker returns to the runner.
+                pending.set()
+                assert release.wait(10)
+                raise ReviewRequired("visual")
+            persist_progress(store, folder.name, ProgressEvent(event="finished", step="privacy"))
+            return super().run(folder)
+
+    new_case(store, "review")
+    judge = ReviewingJudge()
+    runner = JobRunner(store, judge)
+    runner.start()
+    try:
+        runner.submit("review", stage(store, "video"))
+        assert pending.wait(10)
+        assert load(store, "review").status == "checking"
+        for _ in range(2):
+            runner.resume("review")
+        assert judge.calls == 1
+    finally:
+        release.set()
+        runner.close()
+    assert judge.calls == 2
+    case = load(store, "review")
+    assert case.status == "ready"
+    assert [(event.event, event.step) for event in case.progress] == [
+        ("started", "judge"),
+        ("started", "privacy"),
+        ("finished", "privacy"),
+        ("finished", "judge"),
+        ("done", None),
+    ]
+
+
+def test_review_pause_survives_restart(store: Store) -> None:
+    from api.app.reviews import require_approval
+    from judge import ReviewRequest
+
+    class AwaitingApproval(FakeJudge):
+        calls = 0
+
+        def run(self, folder: Path) -> Verdict:
+            self.calls += 1
+            require_approval(store, folder.name, ReviewRequest("visual", "headers to review"))
+            return super().run(folder)
+
+    new_case(store, "review")
+    judge = AwaitingApproval()
+    runner = JobRunner(store, judge)
+    runner.start()
+    runner.submit("review", stage(store, "video"))
+    runner.close()
+    runner.start()
+    runner.close()
+    case = load(store, "review")
+    assert case.status == "checking"
+    assert judge.calls == 1
+    assert [(entry.event, entry.step) for entry in case.progress] == [("started", "judge")]

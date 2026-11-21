@@ -31,7 +31,8 @@ def test_case_review(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clear: boo
         monkeypatch.setattr(fake, "SAMPLE_VERDICT", clear_fixture)
 
     monkeypatch.setenv("DEMO_PASSCODE", "for-tests")
-    headers = {"X-Demo-Passcode": "for-tests"}
+    monkeypatch.setenv("SHOP_PASSCODE", "shop-test")
+    headers = {"X-Demo-Passcode": "for-tests", "X-Shop-Passcode": "shop-test"}
     injected_judge = UploadJudge()
     with TestClient(create_app(tmp_path, injected_judge), headers=headers) as client:
         assert client.app.state.judge is injected_judge
@@ -77,6 +78,7 @@ def test_case_review(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clear: boo
 
 def test_route_contracts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DEMO_PASSCODE", "for-tests")
+    monkeypatch.setenv("SHOP_PASSCODE", "shop-test")
     with TestClient(create_app(tmp_path)) as client:
         assert client.get("/health").json() == {"status": "ok"}
         assert client.get("/api/orders").status_code in (401, 403, 422)
@@ -84,7 +86,9 @@ def test_route_contracts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Non
         assert client.get("/api/orders").status_code == 403
         client.headers["X-Demo-Passcode"] = "for-tests"
         paths = client.get("/openapi.json").json()["paths"]
-        assert len(paths) == 14
+        assert "/api/shop/cases/{id}/evidence/{asset}" in paths
+        assert client.get("/api/shop/cases").status_code == 403
+        client.headers["X-Shop-Passcode"] = "shop-test"
         order = client.get("/api/orders").json()[0]
         assert client.get("/api/listings").json() == [order["listing"]]
         body = {"order_id": order["id"], "claim_type": "damaged", "description": "Damaged tee"}
@@ -119,6 +123,7 @@ def test_upload_preconditions_reject_before_reading_body(
         yield b""
 
     monkeypatch.setenv("DEMO_PASSCODE", "for-tests")
+    monkeypatch.setenv("SHOP_PASSCODE", "shop-test")
     with TestClient(create_app(tmp_path)) as client:
         paths = client.get("/openapi.json").json()["paths"]
         assert (
@@ -131,6 +136,7 @@ def test_upload_preconditions_reject_before_reading_body(
             ("/api/cases/UJ-SAMPLE/video", "invalid", 403),
             ("/api/uploads/token", "invalid", 403),
             ("/api/listings", "invalid", 403),
+            ("/api/listings", "for-tests", 403),
             ("/api/cases/UJ-SAMPLE/video", "for-tests", 409),
             ("/api/uploads/token", "for-tests", 404),
         ):
@@ -152,7 +158,8 @@ def test_read_during_write_and_competing_decisions(
     from api.app.store import Store
 
     monkeypatch.setenv("DEMO_PASSCODE", "for-tests")
-    headers = {"X-Demo-Passcode": "for-tests"}
+    monkeypatch.setenv("SHOP_PASSCODE", "shop-test")
+    headers = {"X-Demo-Passcode": "for-tests", "X-Shop-Passcode": "shop-test"}
     with TestClient(create_app(tmp_path), headers=headers) as client:
         with Store(tmp_path).transaction() as db:
             db.execute("DELETE FROM cases WHERE id = ?", ("UJ-SAMPLE",))

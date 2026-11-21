@@ -64,7 +64,11 @@ def seed_case_list(store: Store) -> None:
 
 def test_case_lists_from_file_backed_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DEMO_PASSCODE", "list-test")
-    with TestClient(create_app(tmp_path), headers={"X-Demo-Passcode": "list-test"}) as client:
+    monkeypatch.setenv("SHOP_PASSCODE", "shop-test")
+    with TestClient(
+        create_app(tmp_path),
+        headers={"X-Demo-Passcode": "list-test", "X-Shop-Passcode": "shop-test"},
+    ) as client:
         assert client.delete("/api/cases/UJ-SAMPLE").status_code == 204
         seed_case_list(Store(tmp_path))
         newest = list(reversed(range(DAILY_CASES)))
