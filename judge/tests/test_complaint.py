@@ -57,11 +57,12 @@ def test_grounding_uses_only_catalogued_findings_in_the_selected_claim_scope() -
 
     assert result.claim_confidence == 0.96
     assert [
-        (item.kind, [(ref.check, ref.t) for ref in item.evidence]) for item in result.allegations
+        (item.kind, [(ref.check, ref.t) for ref in item.candidates]) for item in result.allegations
     ] == [
         ("color", [("variant", 8.125), ("variant", 9.375)]),
         ("size", []),
     ]
+    assert all(not item.evidence for item in result.allegations)
     assert checks["variant"].findings[0].t == 8.125
     assert description not in result.model_dump_json()
     assert len(responses.calls) == 1
@@ -88,6 +89,27 @@ def test_report_cannot_create_a_check_or_add_evidence_to_an_unclear_check() -> N
         model="test-model",
     )
     assert result.allegations[0].evidence == []
+
+
+def test_combined_variant_check_cannot_verify_a_specific_size_allegation() -> None:
+    responses = FakeResponses(
+        {"confidence": 0.97, "allegations": [{"kind": "size", "finding_ids": [0]}]}
+    )
+    variant = Check(
+        status="flag",
+        confidence=0.95,
+        findings=[Finding(t=2.0, note_en="The shirt is blue.", note_th="เสื้อเป็นสีน้ำเงิน")],
+    )
+    result = assess_complaint(
+        "wrong_item",
+        "The shirt is a size smaller than I ordered.",
+        {"variant": variant},
+        privacy_approved=True,
+        client=SimpleNamespace(responses=responses),
+        model="test-model",
+    )
+    assert not result.allegations[0].evidence
+    assert [ref.t for ref in result.allegations[0].candidates] == [2.0]
 
 
 def test_confirming_human_review_is_required_before_text_leaves_process() -> None:
