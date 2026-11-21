@@ -1,0 +1,223 @@
+"""Run the real worker with local video stages and a fake model transport."""
+
+import json
+from pathlib import Path
+from threading import Lock
+from types import SimpleNamespace
+
+import numpy as np
+import pytest
+
+from api.app.contracts import ProgressEvent, Verdict
+from api.app.sample import LISTING, ORDER
+from judge import JudgeInputs, ReviewRequest, ReviewRequired, run
+from judge.intake import IntakeResult
+from judge.integrity import OpeningObservation
+from judge.matching import ReviewedListingPhoto
+from judge.pipeline import PipelineError
+from judge.privacy import RedactionRegion
+from judge.sampling import SampledFrame
+
+DESCRIPTION = "เห็นรอยแตกเมื่อเปิดกล่อง private-complaint"
+FINDING_TIME = 4.1254
+
+
+class FakeResponses:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str]] = []
+        self.lock = Lock()
+
+    def parse(self, **kwargs: object) -> SimpleNamespace:
+        schema = kwargs["text_format"].__name__
+        messages = kwargs["input"]
+        with self.lock:
+            self.calls.append((schema, str(messages)))
+        assert kwargs["store"] is False
+        if schema == "VisionObservation":
+            result = {
+                "status": "observed",
+                "findings": [
+                    {"t": 4.13, "category": "damage", "value": "crack", "confidence": 0.98}
+                ],
+                "note_en": "A crack is visible.",
+            }
+        elif schema == "MatchResponse":
+            name = json.loads(messages[1]["content"][0]["text"].splitlines()[0])["check"]
+            findings = (
+                [{"t": 4.13, "note_en": "Crack on case.", "note_th": "ตัวเคสแตก"}]
+                if name == "damage"
+                else []
+            )
+            result = {
+                "status": "flag" if findings else "pass",
+                "confidence": 0.97,
+                "findings": findings,
+                "note_en": "Compared with listing.",
+            }
+        elif schema == "ComplaintSelection":
+            result = {"confidence": 0.96, "allegations": [{"kind": "damage", "finding_ids": [0]}]}
+        else:
+            assert schema == "ReasonSelection"
+            result = {"finding_id": 0}
+        return SimpleNamespace(output_parsed=result)
+
+
+@pytest.fixture
+def case(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> tuple[Path, JudgeInputs, FakeResponses]:
+    folder = tmp_path / "UJ-PIPELINE"
+    folder.mkdir()
+    (folder / "video.mp4").write_bytes(b"local test placeholder")
+    grid = ((np.indices((64, 64)).sum(axis=0) % 2) * 255).astype(np.uint8)
+    image = np.repeat(grid[:, :, None], 3, axis=2)
+    frames = [
+        SampledFrame(timestamp_seconds=i + 0.1254, image=image, blur_score=900, scene_change=False)
+        for i in range(6)
+    ]
+    monkeypatch.setattr("judge.pipeline.sample_frames", lambda path: frames)
+    monkeypatch.setattr(
+        "judge.pipeline.inspect_video",
+        lambda path: IntakeResult(
+            duration_seconds=6,
+            size_bytes=22,
+            width=64,
+            height=64,
+            rotation_degrees=0,
+            dark_frame_ratio=0,
+        ),
+    )
+    inputs = JudgeInputs(
+        claim_type="damaged",
+        description=DESCRIPTION,
+        order=ORDER,
+        listing=LISTING,
+        listing_photos=(ReviewedListingPhoto(image=image, privacy_reviewed=True),),
+        opening=OpeningObservation(
+            timestamp_seconds=frames[0].timestamp_seconds,
+            seal_state="intact",
+            seal_confidence=0.99,
+            observed_order_id=ORDER.id,
+            label_confidence=0.99,
+        ),
+        redactions_by_timestamp={FINDING_TIME: (RedactionRegion(x=0, y=0, width=16, height=16),)},
+    )
+    return folder, inputs, FakeResponses()
+
+
+def test_run_writes_grounded_assets_and_shared_verdict(
+    case: tuple[Path, JudgeInputs, FakeResponses],
+) -> None:
+    folder, inputs, responses = case
+    reviews: list[ReviewRequest] = []
+    progress: list[ProgressEvent] = []
+
+    def approve(request: ReviewRequest) -> bool:
+        reviews.append(request)
+        return True
+
+    verdict = run(
+        folder,
+        inputs,
+        review=approve,
+        progress=progress.append,
+        model="test-model",
+        client=SimpleNamespace(responses=responses),
+    )
+
+    assert (verdict.verdict, verdict.display, verdict.confidence) == ("buyer_right", "clear", 0.96)
+    assert Verdict.model_validate_json((folder / "verdict.json").read_bytes()) == verdict
+    assert len(verdict.evidence) == 1
+    evidence = verdict.evidence[0]
+    assert evidence.t == FINDING_TIME
+    assert "4.1254" in verdict.reason.en and "4.1254" in verdict.reason.th
+    assert [request.stage for request in reviews] == [
+        "visual",
+        "observation",
+        "complaint",
+        "reason",
+    ]
+    reviewed_images = dict(reviews[0].images)
+    assert (folder / evidence.frame).read_bytes() in reviewed_images.values()
+    assert (folder / evidence.listing_photo).read_bytes() in reviewed_images.values()
+    assert DESCRIPTION not in (folder / "verdict.json").read_text()
+    assert ORDER.id not in "".join(payload for _, payload in responses.calls)
+    assert ORDER.buyer_name not in "".join(payload for _, payload in responses.calls)
+    assert [schema for schema, _ in responses.calls] == [
+        "VisionObservation",
+        *["MatchResponse"] * 5,
+        "ComplaintSelection",
+        "ReasonSelection",
+    ]
+    assert all(
+        DESCRIPTION not in payload
+        for schema, payload in responses.calls
+        if schema != "ComplaintSelection"
+    )
+    assert (
+        DESCRIPTION
+        in [payload for schema, payload in responses.calls if schema == "ComplaintSelection"][0]
+    )
+    assert [event.step for event in progress if event.event == "finished"] == [
+        step.name for step in verdict.steps
+    ]
+
+
+def test_pending_review_never_releases_images_or_writes_verdict(
+    case: tuple[Path, JudgeInputs, FakeResponses],
+) -> None:
+    folder, inputs, responses = case
+    with pytest.raises(ReviewRequired) as error:
+        run(folder, inputs, model="test-model", client=SimpleNamespace(responses=responses))
+    assert error.value.stage == "visual"
+    assert not responses.calls
+    assert not (folder / "verdict.json").exists()
+    assert not (folder / "frames").exists()
+    assert not (folder / "listing").exists()
+
+
+def test_observation_checkpoint_allows_retry_without_repeating_the_model_call(
+    case: tuple[Path, JudgeInputs, FakeResponses],
+) -> None:
+    folder, inputs, responses = case
+    client = SimpleNamespace(responses=responses)
+    with pytest.raises(ReviewRequired) as error:
+        run(
+            folder,
+            inputs,
+            review=lambda request: request.stage == "visual",
+            model="test-model",
+            client=client,
+        )
+    assert error.value.stage == "observation"
+    assert not (folder / "verdict.json").exists()
+    verdict = run(folder, inputs, review=lambda request: True, model="test-model", client=client)
+    assert verdict.display == "clear"
+    assert [schema for schema, _ in responses.calls].count("VisionObservation") == 1
+
+
+def test_unapproved_complaint_keeps_visual_leaning_and_forces_unsure(
+    case: tuple[Path, JudgeInputs, FakeResponses],
+) -> None:
+    folder, inputs, responses = case
+    verdict = run(
+        folder,
+        inputs,
+        review=lambda request: request.stage in ("visual", "observation"),
+        model="test-model",
+        client=SimpleNamespace(responses=responses),
+    )
+    assert (verdict.verdict, verdict.leaning, verdict.confidence) == ("needs_human", "buyer", 0)
+    assert "complaint" in verdict.reason.en and "4.1254" not in verdict.reason.en
+    assert all(
+        schema not in ("ComplaintSelection", "ReasonSelection") for schema, _ in responses.calls
+    )
+
+
+def test_uploaded_video_without_inputs_does_not_fall_back_to_sample(
+    case: tuple[Path, JudgeInputs, FakeResponses],
+) -> None:
+    folder, _, _ = case
+    with pytest.raises(PipelineError, match="JudgeInputs"):
+        run(folder)
+    assert not (folder / "verdict.json").exists()
