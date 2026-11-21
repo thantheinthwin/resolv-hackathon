@@ -26,3 +26,7 @@ are scheduled for the next checkpoint.
 Run `make check` for the Python and web checks. After changing an API route,
 run `npm --prefix web run gen:api` against the running API and check the
 generated TypeScript diff.
+
+## Team activity
+
+Team members and agents can claim paths and watch active work across devices. [Plugin installation and team coordinator setup](plugins/team-activity/README.md)

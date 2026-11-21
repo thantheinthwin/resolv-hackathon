@@ -1,0 +1,11 @@
+{
+  "name": "team-activity",
+  "version": "0.1.0",
+  "description": "Coordinate active tasks and file claims across a team's Codex sessions.",
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Team Activity",
+    "shortDescription": "See live work and claim paths before editing",
+    "category": "Productivity"
+  }
+}

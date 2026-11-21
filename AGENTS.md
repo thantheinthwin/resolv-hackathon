@@ -2,6 +2,10 @@
 
 Read [development guardrails](docs/DEVELOPMENT.md) and [team workflow](docs/WORKFLOW.md) before editing. They cover ownership, code rules, checks, branches, and merge checkpoints.
 
+When Team Activity is configured for this checkout, use its coordinate skill to check
+active work and claim paths before editing. Renew the claim while working and
+release it at completion or handoff. [Team setup](plugins/team-activity/README.md)
+
 Read the guide for each service your task touches, including the other side of a changed interface.
 
 - [Web](web/AGENTS.md) — Next.js screens and API consumption.

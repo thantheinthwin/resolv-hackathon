@@ -4,4 +4,4 @@ target-version = "py312"
 extend-exclude = ["web/node_modules", "web/.next"]
 
 [tool.pytest.ini_options]
-testpaths = ["api", "judge"]
+testpaths = ["api", "judge", "plugins/team-activity/tests"]
