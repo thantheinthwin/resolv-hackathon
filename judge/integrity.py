@@ -74,6 +74,9 @@ class IntegrityFlag(StrictModel):
     note: str
 
 
+# fmt: on
+
+
 class IntegrityReport(StrictModel):
     """Matches the planned flags/checks shapes in the future Verdict contract."""
 
@@ -83,9 +86,6 @@ class IntegrityReport(StrictModel):
     @property
     def requires_human_review(self) -> bool:
         return bool(self.flags) or any(check.status == "unclear" for check in self.checks.values())
-
-
-# fmt: on
 
 
 def _check_frames(frames: Sequence[SanitizedFrame]) -> None:
