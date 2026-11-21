@@ -114,13 +114,19 @@ def _cache_file(folder: Path, key: str) -> Path:
     return folder / f"{key}.json"
 
 
-def _cached_check(folder: Path, key: str, timestamps: Sequence[float]) -> Check | None:
+def _read_cache[Result: BaseModel](folder: Path, key: str, schema: type[Result]) -> Result | None:
     file = _cache_file(folder, key)
     if file.is_symlink():
         return None
     try:
-        check = Check.model_validate_json(file.read_bytes())
+        return schema.model_validate_json(file.read_bytes())
     except (OSError, ValueError):
+        return None
+
+
+def _cached_check(folder: Path, key: str, timestamps: Sequence[float]) -> Check | None:
+    check = _read_cache(folder, key, Check)
+    if check is None:
         return None
     if any(finding.t not in timestamps for finding in check.findings):
         return None

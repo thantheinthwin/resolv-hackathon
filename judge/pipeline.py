@@ -29,9 +29,9 @@ from judge.intake import DARK_FRAME_THRESHOLD, inspect_video
 from judge.integrity import OPENING_WINDOW_SECONDS, OpeningObservation, assess_integrity
 from judge.matching import (
     ReviewedListingPhoto,
-    _cache_file,
     _cache_folder,
     _listing_context,
+    _read_cache,
     _validate_photos,
     _write_cache,
     compare_listing,
@@ -135,19 +135,15 @@ def _observation(
     key = sha256(
         _json((model, SYSTEM_INSTRUCTIONS, visual.fingerprint)).encode("utf-8")
     ).hexdigest()
-    file = _cache_file(cache, key)
     sent = {frame.timestamp_seconds for frame in frames}
-    if file.is_file() and not file.is_symlink():
-        try:
-            result = VisionObservation.model_validate_json(file.read_bytes())
-            if (
-                result.status == "observed"
-                and result.findings
-                and all(item.t in sent for item in result.findings)
-            ):
-                return result
-        except (OSError, ValueError):
-            pass
+    result = _read_cache(cache, key, VisionObservation)
+    if (
+        result is not None
+        and result.status == "observed"
+        and result.findings
+        and all(item.t in sent for item in result.findings)
+    ):
+        return result
 
     result = observe_product(frames, privacy_approved=True, model=model, client=client)
     if result.status == "observed" and result.findings:
@@ -295,6 +291,7 @@ def run_uploaded_case(
                 privacy_approved=True,
                 model=selected_model,
                 client=client,
+                cache_dir=cache,
             )
             if complaint_approved
             else ComplaintAssessment(claim_confidence=0, allegations=[])
@@ -317,13 +314,28 @@ def run_uploaded_case(
                 th=f"{verdict.reason.th} ข้อร้องเรียนที่เขียนไว้ยังรอการตรวจสอบความเป็นส่วนตัว",
             )
 
+    linked = {
+        (reference.check, reference.t)
+        for allegation in complaint.allegations
+        for reference in allegation.evidence
+    }
     with step("evidence", "code", "Paired exact frame times with reviewed listing photos"):
         evidence = build_evidence_pack(
             verdict.checks, frame_assets, listing_assets, privacy_approved=True
         )
+        evidence.sort(key=lambda pair: (pair.check, pair.t) not in linked)
 
     deciding_check = deciding_check_name(inputs.claim_type, verdict.checks)
     check = verdict.checks[deciding_check]
+    scoped_findings = [
+        finding for finding in check.findings if (deciding_check, finding.t) in linked
+    ]
+    reason_context = verdict
+    if scoped_findings:
+        check = check.model_copy(update={"findings": scoped_findings})
+        reason_context = verdict.model_copy(
+            update={"checks": {**verdict.checks, deciding_check: check}}
+        )
     reason_approved = bool(check.findings) and _approved(
         review,
         ReviewRequest(
@@ -331,6 +343,7 @@ def run_uploaded_case(
             text=_json(
                 {
                     "check": deciding_check,
+                    "status": check.status,
                     "findings": [finding.model_dump(mode="json") for finding in check.findings],
                 }
             ),
@@ -342,11 +355,12 @@ def run_uploaded_case(
         "Prepared the English and Thai explanations",
     ):
         reason = generate_reason(
-            verdict,
+            reason_context,
             deciding_check,
             privacy_approved=reason_approved,
             model=selected_model,
             client=client,
+            cache_dir=cache,
         )
 
     result = Verdict.model_validate(

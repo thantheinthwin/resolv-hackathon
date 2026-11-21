@@ -66,8 +66,8 @@ and out of logs, buyer responses, and public media routes.
 Catch `ReviewRequired` in the API adapter/job flow. Record the pending review
 and requeue after approval of the same request. The current job runner treats
 uncaught worker exceptions as failures, so handle this before enabling the
-adapter. Product observations and listing comparison results are reused from
-the private `.judge-cache/` on retry. Local preparation runs again.
+adapter. Successful model results are reused from the private
+`.judge-cache/` on retry. Local preparation runs again.
 
 The worker emits shared `ProgressEvent` messages for step start and finish if
 given a `progress` callback. Thant owns persistence and final completion in
@@ -81,6 +81,8 @@ The ready-to-wire stages are intake, sampling, redaction, integrity,
 complaint-blind observation and listing comparison, complaint grounding,
 deterministic verdict, exact-timestamp evidence, and bilingual reasons. The
 worker uses the same bounded model frame subset for the matcher and evidence
-pack. The API approval UI, local opening-observation producer, and real
-upload verification remain integration work. The one-argument fixture path
+pack. Grounded complaint links put relevant evidence first and scope reason
+selection when they match the deciding check. The API approval UI, local
+opening-observation producer, and real upload verification remain integration
+work. The one-argument fixture path
 is for case directories without an uploaded `video.mp4`.
