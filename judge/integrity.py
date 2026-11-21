@@ -252,7 +252,7 @@ def _opening_checks(
                     t=timestamp,
                     note_en=note,
                     note_th="ซีลพัสดุดูเหมือนถูกเปิดก่อนเริ่มแกะกล่อง",
-                )
+                ),
             ],
         )
     else:
@@ -279,7 +279,7 @@ def _opening_checks(
                     t=timestamp,
                     note_en=note,
                     note_th="รหัสคำสั่งซื้อบนพัสดุไม่ตรงกับข้อมูลการสั่งซื้อ",
-                )
+                ),
             ],
         )
     else:
