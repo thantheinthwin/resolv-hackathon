@@ -32,7 +32,9 @@ def test_case_review(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clear: boo
 
     monkeypatch.setenv("DEMO_PASSCODE", "for-tests")
     headers = {"X-Demo-Passcode": "for-tests"}
-    with TestClient(create_app(tmp_path, UploadJudge()), headers=headers) as client:
+    injected_judge = UploadJudge()
+    with TestClient(create_app(tmp_path, injected_judge), headers=headers) as client:
+        assert client.app.state.judge is injected_judge
         order = client.get("/api/orders").json()[0]
         assert client.get(order["listing"]["photos"][0]).headers["content-type"] == "image/png"
         assert client.get("/api/files/cases/UJ-SAMPLE/verdict.json").status_code == 404
