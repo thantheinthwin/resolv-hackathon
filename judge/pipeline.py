@@ -51,6 +51,7 @@ from judge.vision import (
 )
 
 ReviewStage = Literal["visual", "observation", "complaint", "reason"]
+COMPLAINT_REVIEW_PENDING = "Written complaint awaits privacy review"
 
 
 class PipelineError(ValueError):
@@ -307,9 +308,7 @@ def run_uploaded_case(
     with step(
         "complaint",
         "model" if description.strip() and complaint_approved else "code",
-        "Assessed the selected claim"
-        if complaint_approved
-        else "Written complaint awaits privacy review",
+        "Assessed the selected claim" if complaint_approved else COMPLAINT_REVIEW_PENDING,
     ):
         complaint = (
             assess_complaint(

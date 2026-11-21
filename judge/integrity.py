@@ -24,6 +24,7 @@ MIN_JUMP_SCORE = 0.05
 MIN_PHASH_DISTANCE = 20
 GROUNDING_TOLERANCE_SECONDS = 0.05
 OPENING_WINDOW_SECONDS = 10.0
+OPENING_OBSERVATION_UNAVAILABLE = "No grounded opening observation available."
 NO_CUT_PROOF = "No strong scene change in the sampled frames. "
 NO_CUT_PROOF += "This does not prove the video is unedited."
 CheckStatus = Literal["pass", "flag", "unclear"]
@@ -213,7 +214,7 @@ def _opening_checks(
     unknown = IntegrityCheck(
         status="unclear",
         confidence=0.0,
-        note_en="No grounded opening observation available.",
+        note_en=OPENING_OBSERVATION_UNAVAILABLE,
     )
     if observation is None:
         return {"seal": unknown, "label": unknown.model_copy(deep=True)}, []

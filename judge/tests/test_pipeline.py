@@ -19,6 +19,7 @@ from judge.opening_review import OpeningReviewRequest, OpeningReviewSelection
 from judge.pipeline import PipelineError
 from judge.privacy import RedactionRegion
 from judge.sampling import SampledFrame
+from judge.submission import SubmissionResult, run_submission
 
 DESCRIPTION = "เห็นรอยแตกเมื่อเปิดกล่อง private-complaint"
 FINDING_TIME = 4.1254
@@ -171,6 +172,23 @@ def test_run_writes_grounded_assets_and_shared_verdict(
     assert [event.step for event in progress if event.event == "finished"] == [
         step.name for step in verdict.steps
     ]
+
+
+def test_submission_publishes_one_grounded_complaint_result(
+    case: tuple[Path, JudgeInputs, FakeResponses],
+) -> None:
+    folder, inputs, responses = case
+    result = run_submission(
+        folder,
+        inputs,
+        review=lambda request: True,
+        model="test-model",
+        client=SimpleNamespace(responses=responses),
+    )
+    assert result.feedback is not None
+    assert result.feedback.result == "complaint_supported"
+    assert str(FINDING_TIME) in result.feedback.reason.en
+    assert SubmissionResult.model_validate_json((folder / "submission.json").read_bytes()) == result
 
 
 def test_pending_review_never_releases_images_or_writes_verdict(

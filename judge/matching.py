@@ -172,12 +172,15 @@ def _ground_response(response: MatchResponse, timestamps: Sequence[float]) -> Ch
     )
 
 
+COMPARISON_UNAVAILABLE = "This check could not be completed reliably."
+
+
 def _unclear() -> Check:
     return Check(
         status="unclear",
         confidence=0.0,
         findings=[],
-        note_en="This check could not be completed reliably.",
+        note_en=COMPARISON_UNAVAILABLE,
     )
 
 

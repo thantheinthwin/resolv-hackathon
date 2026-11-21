@@ -16,6 +16,7 @@ from judge.complaint import (
     assess_complaint,
 )
 from judge.config import get_secret
+from judge.feedback import ComplaintFeedback, VideoStatus, build_complaint_feedback
 from judge.matching import (
     _cache_folder,
     _listing_context,
@@ -25,6 +26,7 @@ from judge.matching import (
 )
 from judge.opening_review import OpeningReviewer
 from judge.pipeline import (
+    COMPLAINT_REVIEW_PENDING,
     PipelineError,
     Progress,
     Review,
@@ -42,7 +44,6 @@ from judge.vision import MODEL_TIMEOUT_SECONDS, VisionClient, _client_from_envir
 
 MAX_BUYER_PHOTOS = 3
 STRICT = ConfigDict(extra="forbid", strict=True, frozen=True, hide_input_in_errors=True)
-VideoStatus = Literal["absent", "no_usable_frames", "analyzed"]
 _BUYER_PHOTO_INDEX_PATTERN = "|".join(str(index) for index in range(MAX_BUYER_PHOTOS))
 BuyerPhotoRef = Annotated[
     str, Field(pattern=rf"^buyer-photos/(?:{_BUYER_PHOTO_INDEX_PATTERN})-[0-9a-f]{{64}}\.jpg$")
@@ -110,12 +111,20 @@ class SubmissionResult(BaseModel):
     buyer_photos: list[BuyerPhotoRef] = Field(max_length=MAX_BUYER_PHOTOS)
     photo_findings: list[PhotoFinding]
     complaint: ComplaintAssessment | None
+    feedback: ComplaintFeedback | None = None
 
     @model_validator(mode="after")
     def validate_photo_references(self) -> Self:
         if any(finding.photo not in self.buyer_photos for finding in self.photo_findings):
             raise ValueError("Photo findings must refer to a JPEG in the buyer photo manifest.")
         return self
+
+
+def write_submission(directory: Path, result: SubmissionResult) -> None:
+    """Publish a validated submission artifact after its referenced assets exist."""
+    write_atomically(
+        directory / "submission.json", (result.model_dump_json(indent=2) + "\n").encode()
+    )
 
 
 def _photo_review(inputs: SubmissionInputs, buyer_photos: tuple[BuyerPhoto, ...]) -> ReviewRequest:
@@ -281,6 +290,7 @@ def run_submission(
         ]
 
     complaint = None
+    complaint_pending = False
     if verdict is None:
         if has_text and _approved(
             review,
@@ -298,24 +308,33 @@ def run_submission(
                 client=client,
                 cache_dir=cache_dir,
             )
+        complaint_pending = has_text and complaint is None
         verdict = _without_video(
             directory.name,
             video_status,
             video_steps,
-            complaint_pending=has_text and complaint is None,
+            complaint_pending=complaint_pending,
         )
+    complaint_pending = complaint_pending or any(
+        step.name == "complaint" and step.output == COMPLAINT_REVIEW_PENDING
+        for step in verdict.steps
+    )
     result = SubmissionResult(
         verdict=verdict,
         video_status=video_status,
         buyer_photos=list(reviewed_photos),
         photo_findings=photo_findings,
         complaint=complaint,
+        feedback=build_complaint_feedback(
+            verdict,
+            inputs.claim_type,
+            video_status=video_status,
+            complaint_pending=complaint_pending,
+        ),
     )
     for ref, jpeg in reviewed_photos.items():
         asset = directory / ref
         _cache_folder(asset.parent)
         write_atomically(asset, jpeg)
-    write_atomically(
-        directory / "submission.json", (result.model_dump_json(indent=2) + "\n").encode()
-    )
+    write_submission(directory, result)
     return result

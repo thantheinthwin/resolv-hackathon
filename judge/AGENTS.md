@@ -122,6 +122,27 @@ classification, when available, without timestamp claims. Still photos
 cannot establish video continuity, opening seal state, or when damage
 occurred. The shop makes the final decision.
 
+For new submissions, present the `feedback.result` and its bilingual
+`feedback.reason` as the complaint recommendation. `complaint_supported`
+requires a clear buyer-side verdict and an evidence pair at the exact
+timestamp of the deciding finding. `needs_more_evidence` requests a specific
+usable view, for example a close-up of the reported damage.
+`needs_human_check` handles integrity flags, counterfeit claims, pending
+privacy review, evidence that favors the shop, and inconclusive comparisons
+where usable evidence is already present. The reason carries the relevant
+check or evidence request. A product-link case with no linked order requests
+the purchased item and variant. An integrity concern or counterfeit claim
+takes priority and goes to the shop. An unperformed opening review or
+unavailable model comparison is also a shop task.
+
+The product-link local path publishes the same `submission.json` shape with
+the feedback and a shared `Verdict` carrying the same reason. The adapter can
+read the feedback for cases with zero reviewed photos and verify that its
+verdict matches the persisted case. Use the feedback's result and reason
+for the shop recommendation. The legacy verdict carries the internal score
+and evidence references. Earlier `submission.json` files can be read with
+`feedback=None`.
+
 Thant's adapter needs to finalize a case from any nonempty combination,
 store buyer photos as private uploads, present exact review requests, and
 load the submission result when the job completes. Apply buyer upload limits

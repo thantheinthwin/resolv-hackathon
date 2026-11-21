@@ -243,6 +243,9 @@ def test_no_sharp_frames_keeps_photos_and_text(tmp_path: Path) -> None:
     assert result.complaint is not None and result.complaint.allegations
     assert len(result.photo_findings) == 1
     assert "usable frames" in result.verdict.reason.en
+    assert result.feedback is not None
+    assert result.feedback.result == "needs_more_evidence"
+    assert "usable video" in result.feedback.reason.en
     assert (events[-1].step, events[-1].event) == ("sampling", "finished")
     assert [step.name for step in result.verdict.steps] == ["intake", "sampling"]
 
