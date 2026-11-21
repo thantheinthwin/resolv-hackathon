@@ -1,7 +1,9 @@
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
 import cv2
+import judge
 import numpy as np
 import pytest
 from fastapi.testclient import TestClient
@@ -10,7 +12,16 @@ from api.app.contracts import Verdict
 from api.app.judging import CaseJudge
 from api.app.store import Store
 from api.main import create_app
-from judge import ReviewRequest, complaint, matching, reasons, text_model, vision
+from judge import (
+    JudgeInputs,
+    ReviewRequest,
+    ReviewRequired,
+    complaint,
+    matching,
+    reasons,
+    text_model,
+    vision,
+)
 
 
 def test_reviewed_upload_publishes_grounded_evidence(
@@ -121,3 +132,95 @@ def test_reviewed_upload_publishes_grounded_evidence(
         with pytest.raises(ValueError, match="before an upload"):
             worker.prepare(racing, video, race)
         assert not list((tmp_path / ".judge-reviews" / racing).iterdir())
+
+
+@pytest.mark.parametrize("change", ["second_photo", "order_variant", "product_description"])
+def test_review_uses_current_catalog_and_all_photos(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, change: str
+) -> None:
+    monkeypatch.setenv("DEMO_PASSCODE", "test")
+    photos = [
+        cv2.imencode(".png", np.full((16, 16, 3), value, dtype=np.uint8))[1].tobytes()
+        for value in (30, 110, 200)
+    ]
+    model_inputs: list[JudgeInputs] = []
+
+    def capture_inputs(directory: Path, inputs: JudgeInputs, **kwargs: object) -> Verdict:
+        model_inputs.append(inputs)
+        fixture = Path(judge.__file__).parent / "fixtures/verdict.sample.json"
+        return Verdict.model_validate_json(fixture.read_bytes()).model_copy(
+            update={"case_id": directory.name}
+        )
+
+    # Keep the real adapter, intake and on-disk verdict publication. Capture only
+    # the point at which the reviewed pipeline would process the private inputs.
+    monkeypatch.setattr(judge, "run_uploaded_case", capture_inputs)
+    app = create_app(tmp_path)
+    with TestClient(app, headers={"X-Demo-Passcode": "test"}) as client:
+        response = client.post(
+            "/api/listings",
+            data={"title": "Rucksack", "price": "125", "colors": "Emerald", "sizes": "XL"},
+            files=[("photos", ("bag.png", photo, "image/png")) for photo in photos[:2]],
+        )
+        assert response.status_code == 201
+        product = response.json()
+        order = next(
+            o for o in client.get("/api/orders").json() if o["listing_id"] == product["id"]
+        )
+        response = client.post(
+            "/api/cases",
+            json={"order_id": order["id"], "claim_type": "missing", "description": "Missing strap"},
+        )
+        assert response.status_code == 201
+        case_id = response.json()["id"]
+        directory = tmp_path / "cases" / case_id
+        directory.mkdir(parents=True, exist_ok=True)
+        video = directory / "video.mp4"
+        writer = cv2.VideoWriter(str(video), cv2.VideoWriter_fourcc(*"mp4v"), 2, (32, 32))
+        assert writer.isOpened()
+        try:
+            for _ in range(12):
+                writer.write(np.full((32, 32, 3), 170, dtype=np.uint8))
+        finally:
+            writer.release()
+
+        worker = app.state.judge
+        assert isinstance(worker, CaseJudge)
+        assert worker.run(directory).case_id == case_id
+        with pytest.raises(ReviewRequired):
+            worker.prepare(case_id, video, lambda _: False)
+        assert not model_inputs
+
+        reviewed_photos: list[bytes] = []
+
+        def approve(request: ReviewRequest) -> bool:
+            assert request.stage == "visual"
+            reviewed_photos.extend(image for _, image in request.images)
+            return True
+
+        prepared = worker.prepare(case_id, video, approve)
+        assert reviewed_photos == photos[:2]
+        (inputs,) = model_inputs
+        assert inputs.order.id == order["id"] and inputs.order.listing_id == product["id"]
+        assert inputs.order.variant.model_dump() == {"color": "Emerald", "size": "XL"}
+        assert inputs.listing.model_dump(mode="json") == product
+        assert (inputs.claim_type, inputs.description) == ("missing", "Missing strap")
+        assert [int(photo.image[0, 0, 0]) for photo in inputs.listing_photos] == [30, 110]
+        assert all(photo.privacy_reviewed for photo in inputs.listing_photos)
+        assert worker.run(directory) == prepared
+
+        with Store(tmp_path).transaction() as db:
+            if change == "second_photo":
+                second = product["photos"][1].removeprefix("/api/files/")
+                db.execute("UPDATE listing_photos SET image=? WHERE path=?", (photos[2], second))
+            elif change == "order_variant":
+                db.execute("UPDATE orders SET size='S' WHERE id=?", (order["id"],))
+            else:
+                updated = {**product, "description": "Revised model"}
+                db.execute(
+                    "UPDATE products SET body=? WHERE id=?", (json.dumps(updated), product["id"])
+                )
+        fallback = worker.run(directory)
+        assert fallback.case_id == case_id
+        assert [step.name for step in fallback.steps] == ["sampling"]
+        assert fallback != prepared and len(model_inputs) == 1

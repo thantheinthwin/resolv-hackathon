@@ -58,24 +58,36 @@ def initialize_catalog(db: sqlite3.Connection) -> None:
         insert_order(db, ORDER)
 
 
+_ORDER_QUERY = """
+    SELECT o.id, o.product_id, o.color, o.size, o.quantity,
+           o.delivered_at, o.buyer_name, p.body
+    FROM orders AS o JOIN products AS p ON p.id = o.product_id
+"""
+
+
+def _order_from_row(row: tuple[str, str, str, str, int, str, str, str]) -> OrderWithListing:
+    order_id, listing_id, color, size, quantity, delivered_at, buyer_name, body = row
+    return OrderWithListing(
+        id=order_id,
+        listing_id=listing_id,
+        variant=Variant(color=color, size=size),
+        quantity=quantity,
+        delivered_at=delivered_at,
+        buyer_name=buyer_name,
+        listing=Listing.model_validate_json(body),
+    )
+
+
 def delivered_orders(db: sqlite3.Connection) -> list[OrderWithListing]:
-    return [
-        OrderWithListing(
-            id=order_id,
-            listing_id=listing_id,
-            variant=Variant(color=color, size=size),
-            quantity=quantity,
-            delivered_at=delivered_at,
-            buyer_name=buyer_name,
-            listing=Listing.model_validate_json(body),
-        )
-        for order_id, listing_id, color, size, quantity, delivered_at, buyer_name, body in db.execute(
-            """SELECT o.id, o.product_id, o.color, o.size, o.quantity, o.delivered_at,
-                       o.buyer_name, p.body
-                FROM orders AS o JOIN products AS p ON p.id=o.product_id ORDER BY (o.id = ?) DESC, o.rowid""",
-            (ORDER.id,),
-        )
-    ]
+    rows = db.execute(_ORDER_QUERY + " ORDER BY (o.id = ?) DESC, o.rowid", (ORDER.id,))
+    return [_order_from_row(row) for row in rows]
+
+
+def delivered_order(db: sqlite3.Connection, order_id: str) -> OrderWithListing:
+    row = db.execute(_ORDER_QUERY + " WHERE o.id = ?", (order_id,)).fetchone()
+    if row is None:
+        raise ValueError("The case order is unavailable.")
+    return _order_from_row(row)
 
 
 def require_order(db: sqlite3.Connection, order_id: str) -> None:
