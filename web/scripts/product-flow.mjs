@@ -258,11 +258,13 @@ try {
     hasTouch: true,
   });
   await phone.goto("/");
-  await phone.getByRole("link", { name: "Browse products" }).click();
+  assert.equal(await phone.getByRole("link", { name: "Browse products" }).count(), 0);
+  await phone.getByRole("link", { name: "Continue as buyer" }).click();
+  await phone.getByRole("searchbox", { name: "Search products" }).fill(duplicateColor);
   await phone.getByRole("link", { name: new RegExp(duplicateColor) }).click();
   await phone.waitForURL(claimLink.href);
   assert.equal(await phone.getByRole("button", { name: "Copy product link" }).count(), 0);
-  await phone.getByRole("link", { name: "Report a problem" }).click();
+  await phone.getByRole("link", { name: "Report a problem", exact: true }).click();
   await phone.getByRole("button", { name: "Yes, this is my item" }).click();
   const claimRegion = phone.locator("#start-a-claim");
   await claimRegion.getByRole("heading", { name: "What happened?" }).waitFor();
