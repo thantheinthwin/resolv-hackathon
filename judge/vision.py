@@ -12,7 +12,7 @@ from typing import Literal, Protocol
 
 import cv2
 import numpy as np
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field
 
 from judge.privacy import SanitizedFrame
 
