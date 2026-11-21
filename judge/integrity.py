@@ -244,16 +244,15 @@ def _opening_checks(
     elif observation.seal_state == "opened":
         note = "Parcel seal appears opened before the filmed unboxing."
         flags.append(IntegrityFlag(type="seal_opened", t=timestamp, note=note))
+        finding = IntegrityFinding(
+            t=timestamp,
+            note_en=note,
+            note_th="ซีลพัสดุดูเหมือนถูกเปิดก่อนเริ่มแกะกล่อง",
+        )
         seal = IntegrityCheck(
             status="flag",
             confidence=observation.seal_confidence,
-            findings=[
-                IntegrityFinding(
-                    t=timestamp,
-                    note_en=note,
-                    note_th="ซีลพัสดุดูเหมือนถูกเปิดก่อนเริ่มแกะกล่อง",
-                ),
-            ],
+            findings=[finding],
         )
     else:
         seal = IntegrityCheck(
@@ -271,16 +270,15 @@ def _opening_checks(
     elif not _within_one_edit(expected, observed):
         note = "Visible order code differs from the expected order code."
         flags.append(IntegrityFlag(type="label_mismatch", t=timestamp, note=note))
+        finding = IntegrityFinding(
+            t=timestamp,
+            note_en=note,
+            note_th="รหัสคำสั่งซื้อบนพัสดุไม่ตรงกับข้อมูลการสั่งซื้อ",
+        )
         label = IntegrityCheck(
             status="flag",
             confidence=observation.label_confidence,
-            findings=[
-                IntegrityFinding(
-                    t=timestamp,
-                    note_en=note,
-                    note_th="รหัสคำสั่งซื้อบนพัสดุไม่ตรงกับข้อมูลการสั่งซื้อ",
-                ),
-            ],
+            findings=[finding],
         )
     else:
         label = IntegrityCheck(
