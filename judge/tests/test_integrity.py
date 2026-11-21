@@ -38,7 +38,9 @@ def steady_frames() -> list[SanitizedFrame]:
     return frames
 
 
-def opening(*, t: float = 0.0, seal: str = "intact", code: str | None = "UJ-48213") -> OpeningObservation:
+def opening(
+    *, t: float = 0.0, seal: str = "intact", code: str | None = "UJ-48213"
+) -> OpeningObservation:
     return OpeningObservation(
         timestamp_seconds=t,
         seal_state=seal,
