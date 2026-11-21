@@ -491,7 +491,7 @@ def test_written_variant_complaint_needs_a_directly_verified_attribute(
 ) -> None:
     folder, inputs, _ = case
 
-    class ColorMismatchResponses(FakeResponses):
+    class VariantMismatchResponses(FakeResponses):
         def parse(self, **kwargs: object) -> SimpleNamespace:
             response = super().parse(**kwargs)
             schema = kwargs["text_format"].__name__
@@ -504,11 +504,15 @@ def test_written_variant_complaint_needs_a_directly_verified_attribute(
                         "findings": [
                             {
                                 "t": FINDING_TIME,
-                                "note_en": "The shirt is red.",
-                                "note_th": "เสื้อสีแดง",
+                                "note_en": "The tag reads S, but the order specifies M."
+                                if shows_size
+                                else "The shirt is red.",
+                                "note_th": "ป้ายระบุขนาด S แต่สั่งขนาด M" if shows_size else "เสื้อสีแดง",
                             }
                         ],
-                        "note_en": "Color differs from the order.",
+                        "note_en": "Size differs from the order."
+                        if shows_size
+                        else "Color differs from the order.",
                     }
             if schema == "ComplaintSelection":
                 response.output_parsed = {
@@ -528,7 +532,7 @@ def test_written_variant_complaint_needs_a_directly_verified_attribute(
         inputs.model_copy(update={"claim_type": "wrong_item", "description": "Wrong size"}),
         review=lambda _: True,
         model="test-model",
-        client=SimpleNamespace(responses=ColorMismatchResponses()),
+        client=SimpleNamespace(responses=VariantMismatchResponses()),
     )
 
     assert result.verdict.verdict == "buyer_right"
