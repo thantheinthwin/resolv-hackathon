@@ -5,11 +5,14 @@ redaction succeeds. This module intentionally performs no external requests.
 """
 
 import math
+import subprocess
 from pathlib import Path
 
 import cv2
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field
+
+from judge.ffprobe import probe_video_metadata
 
 SAMPLE_INTERVAL_SECONDS = 0.5
 MIN_BLUR_VARIANCE = 60.0
@@ -64,6 +67,28 @@ def _resize_for_output(frame: np.ndarray) -> np.ndarray:
     return cv2.resize(frame, (OUTPUT_WIDTH, target_height), interpolation=cv2.INTER_AREA)
 
 
+def _presentation_start_offset(video: Path) -> float:
+    """Translate the decoder's stream-relative time to the playback timeline."""
+    try:
+        metadata = probe_video_metadata(video, "stream=start_time:format=start_time")
+        stream_start = float(metadata["streams"][0].get("start_time", 0))
+        playback_start = float(metadata["format"].get("start_time", 0))
+    except (
+        OSError,
+        subprocess.SubprocessError,
+        AttributeError,
+        TypeError,
+        ValueError,
+        KeyError,
+        IndexError,
+        OverflowError,
+    ):
+        raise SamplingError("Video playback timeline could not be read.") from None
+    if not math.isfinite(stream_start) or not math.isfinite(playback_start):
+        raise SamplingError("Video has an invalid playback timeline.")
+    return stream_start - playback_start
+
+
 def sample_frames(
     video_path: str | Path, *, max_frames: int = MAX_SELECTED_FRAMES
 ) -> list[SampledFrame]:
@@ -79,31 +104,35 @@ def sample_frames(
     video = Path(video_path)
     if not video.is_file():
         raise SamplingError("Video file not found.")
-    capture = cv2.VideoCapture(str(video))
+    capture = cv2.VideoCapture(str(video), cv2.CAP_FFMPEG)
     try:
         if not capture.isOpened():
             raise SamplingError("Video cannot be decoded.")
         fps = float(capture.get(cv2.CAP_PROP_FPS))
         if not math.isfinite(fps) or fps <= 0:
             raise SamplingError("Invalid video frame rate.")
+        start_offset = _presentation_start_offset(video)
 
         selected: list[SampledFrame] = []
         last_hash: np.ndarray | None = None
         previous_small: np.ndarray | None = None
         next_sample_time = 0.0
         last_keep_time = -math.inf
-        index = 0
         decoded = False
         while True:
             success, frame = capture.read()
             if not success:
                 break
             decoded = True
-            timestamp = index / fps
-            index += 1
+            # The decoder reports the time of the frame it just returned.
+            # Average FPS cannot recover the timeline of variable-rate video.
+            timestamp = start_offset + capture.get(cv2.CAP_PROP_POS_MSEC) / 1000
+            if not math.isfinite(timestamp):
+                raise SamplingError("Video contains an invalid frame presentation time.")
             if timestamp + 1e-8 < next_sample_time:
                 continue
-            next_sample_time += SAMPLE_INTERVAL_SECONDS
+            interval = math.floor((timestamp + 1e-8) / SAMPLE_INTERVAL_SECONDS)
+            next_sample_time = (interval + 1) * SAMPLE_INTERVAL_SECONDS
 
             gray = _gray_for_scoring(frame)
             sharpness = float(cv2.Laplacian(gray, cv2.CV_64F).var())

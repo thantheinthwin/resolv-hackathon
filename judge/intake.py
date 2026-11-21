@@ -1,6 +1,5 @@
 """Local video intake checks. No frames are saved or sent to external services."""
 
-import json
 import math
 import subprocess
 from pathlib import Path
@@ -8,6 +7,8 @@ from typing import Any
 
 import cv2
 from pydantic import BaseModel, Field
+
+from judge.ffprobe import probe_video_metadata
 
 MIN_DURATION_SECONDS = 5.0
 MAX_DURATION_SECONDS = 120.0
@@ -35,34 +36,14 @@ class IntakeResult(BaseModel):
 
 
 def _probe(path: Path) -> dict[str, Any]:
-    """Get actual video stream metadata using ffprobe, without a shell."""
+    """Interpret the fields needed to validate a video upload."""
     try:
-        process = subprocess.run(
-            [
-                "ffprobe",
-                "-v",
-                "error",
-                "-select_streams",
-                "v:0",
-                "-show_entries",
-                "format=duration:format_tags=creation_time:"
-                "stream=width,height,duration:stream_tags=rotate,creation_time:"
-                "stream_side_data=rotation",
-                "-of",
-                "json",
-                str(path),
-            ],
-            capture_output=True,
-            text=True,
-            timeout=15,
-            check=False,
+        payload = probe_video_metadata(
+            path,
+            "format=duration:format_tags=creation_time:"
+            "stream=width,height,duration:stream_tags=rotate,creation_time:"
+            "stream_side_data=rotation",
         )
-    except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
-        raise IntakeError("Video metadata inspection unavailable; please retry.") from exc
-    if process.returncode != 0:
-        raise IntakeError("Invalid or unreadable video file.")
-    try:
-        payload = json.loads(process.stdout)
         streams = payload["streams"]
         stream = streams[0]
         format_data = payload.get("format", {})
@@ -80,7 +61,11 @@ def _probe(path: Path) -> dict[str, Any]:
             "creation_time": stream.get("tags", {}).get("creation_time")
             or format_data.get("tags", {}).get("creation_time"),
         }
-    except (KeyError, IndexError, TypeError, ValueError, OverflowError) as exc:
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise IntakeError("Video metadata inspection unavailable; please retry.") from exc
+    except subprocess.SubprocessError as exc:
+        raise IntakeError("Invalid or unreadable video file.") from exc
+    except (AttributeError, KeyError, IndexError, TypeError, ValueError, OverflowError) as exc:
         raise IntakeError("Invalid video metadata; please upload a supported video.") from exc
 
 

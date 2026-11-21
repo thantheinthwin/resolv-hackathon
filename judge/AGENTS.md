@@ -9,9 +9,10 @@ Follow the [root rules](../AGENTS.md). Ama owns the worker. Use [the judge plan]
   **unsure**. An unsure verdict still shows its leaning.
 - The buyer's complaint goes only to the claim-type step. The checks that
   describe the video never see it, so it cannot bias what they report.
-- Every finding cites the timestamp of a frame the model was actually sent.
-  Drop any finding that cites another time. A flag left with no grounded
-  finding becomes unclear.
+- Every video finding cites the exact presentation timestamp of a frame sent
+  to the model. Resolve a citation within 0.05s to the sent timestamp and
+  drop other citations. A flag left with no grounded finding becomes unclear. A still-photo finding cites a reviewed JPEG actually
+  sent to the model and has no timestamp.
 - Fraud signals (seal opened before filming, a cut, a label that doesn't match
   the order) always make the verdict unsure.
 - "No cuts found" means only in the sampled frames. Never say a video is
@@ -85,6 +86,49 @@ pack. Grounded complaint links put relevant evidence first and scope reason
 selection when they match the deciding check. API approval, the host reviewer
 hook, and real upload verification remain integration work. The one-argument
 fixture path is for case directories without an uploaded `video.mp4`.
+
+### Submissions with text, photos, or video
+
+For the multimodal upload integration use
+`from judge.submission import BuyerPhoto, SubmissionInputs, SubmissionResult, run_submission`.
+Assemble `SubmissionInputs` from the server-resolved claim, order, and listing.
+Set `description` to the buyer's optional complaint and pass up to three
+locally decoded BGR buyer photos as a tuple of `BuyerPhoto` values. Include any
+reviewer-drawn mask rectangles. Store a supplied video at `case_dir/video.mp4`.
+Submit at least one of nonblank text, buyer photos, or video. Listing photos
+are optional for text-only submissions. A media submission uses one to three
+reviewed listing photos. Keep all inputs stable for the lifetime of a job
+and its retries.
+
+Pass the same human review callback as for the video worker. The buyer photo
+request uses the `visual` stage and a distinct fingerprint covering its exact
+redacted JPEGs, listing JPEGs, and comparison data. The listing photo approval
+and the video review do not grant that approval. A supplied video goes through
+intake before any photo requests. The buyer complaint is only used in a
+separate text request. Never convert browser
+form fields into approval flags or filesystem paths. The current video
+opening reviewer and step progress callback still apply to the video path.
+
+Read the atomic `submission.json` with `SubmissionResult.model_validate_json`.
+Its `verdict` uses the shared `Verdict` model and video evidence keeps exact
+timestamps. `buyer_photos` lists all case-relative reviewed JPEGs under
+`buyer-photos/`, even when the model returns no findings. Each
+`photo_findings` entry references one of those JPEGs and contains English and
+Thai notes. Photo findings are
+supplemental shop evidence. Only the existing video path can produce a clear
+recommendation. With absent video or zero usable frames the verdict is
+`needs_human`; the separate `complaint` field holds the approved text
+classification, when available, without timestamp claims. Still photos
+cannot establish video continuity, opening seal state, or when damage
+occurred. The shop makes the final decision.
+
+Thant's adapter needs to finalize a case from any nonempty combination,
+store buyer photos as private uploads, present exact review requests, and
+load the submission result when the job completes. Apply buyer upload limits
+before decoding. Serve only the referenced sanitized JPEGs to the shop.
+Buyer views continue to receive status and shop messages. Game's buyer form
+and shop review need optional media intake and source-specific rendering.
+The current video API still uses `judge.run` and `verdict.json`.
 
 ### Local opening review
 

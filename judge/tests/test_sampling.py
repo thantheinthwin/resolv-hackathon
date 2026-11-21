@@ -20,7 +20,11 @@ class FakeCapture:
         return True
 
     def get(self, prop: int) -> float:
-        return self.fps if prop == cv2.CAP_PROP_FPS else 0.0
+        if prop == cv2.CAP_PROP_FPS:
+            return self.fps
+        if prop == cv2.CAP_PROP_POS_MSEC:
+            return (self.index - 1) / self.fps * 1000
+        return 0.0
 
     def read(self) -> tuple[bool, np.ndarray | None]:
         if self.index >= len(self.frames):
@@ -43,7 +47,8 @@ def setup_video(
     path = tmp_path / "sample.mp4"
     path.write_bytes(b"synthetic video")
     capture = FakeCapture(frames, fps)
-    monkeypatch.setattr(cv2, "VideoCapture", lambda _: capture)
+    monkeypatch.setattr(cv2, "VideoCapture", lambda *args: capture)
+    monkeypatch.setattr("judge.sampling._presentation_start_offset", lambda _: 0.0)
     return path, capture
 
 
