@@ -1,6 +1,5 @@
 """Tests-first five-check listing comparison with private image inputs."""
 
-from collections.abc import Callable
 from pathlib import Path
 from threading import Lock
 from types import SimpleNamespace
