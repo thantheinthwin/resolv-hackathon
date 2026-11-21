@@ -310,3 +310,54 @@ def compare_listing(
             for name in CHECK_NAMES
         }
         return {name: futures[name].result() for name in CHECK_NAMES}
+
+
+class Step5Result(BaseModel):
+    """Complete vision-and-comparison output before the verdict engine."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    observation: VisionObservation
+    checks: dict[str, Check]
+
+
+def analyze_step5(
+    frames: Sequence[SanitizedFrame],
+    *,
+    listing: Listing,
+    order: Order,
+    listing_photos: Sequence[ReviewedListingPhoto],
+    privacy_approved: bool = False,
+    model: str | None = None,
+    client: VisionClient | None = None,
+    cache_dir: Path | None = None,
+) -> Step5Result:
+    """Run unbiased observation first; compare five checks only afterward.
+
+    Does not form a buyer/seller verdict. A human must first review and
+    approve all sanitized video frames, listing photos and listing text.
+    """
+    if not privacy_approved:
+        raise MatchError("Explicit privacy approval is required for all model inputs.")
+    _validate_frames(frames)
+    _validate_photos(listing_photos)
+    from judge.vision import observe_product
+
+    visual = observe_product(
+        frames,
+        privacy_approved=True,
+        model=model,
+        client=client,
+    )
+    checks = compare_listing(
+        frames,
+        visual,
+        listing=listing,
+        order=order,
+        listing_photos=listing_photos,
+        privacy_approved=True,
+        model=model,
+        client=client,
+        cache_dir=cache_dir,
+    )
+    return Step5Result(observation=visual, checks=checks)
