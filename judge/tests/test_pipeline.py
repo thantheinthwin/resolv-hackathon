@@ -18,7 +18,7 @@ from judge.matching import ReviewedListingPhoto
 from judge.opening_review import OpeningReviewRequest, OpeningReviewSelection
 from judge.pipeline import PipelineError
 from judge.privacy import RedactionRegion
-from judge.sampling import SampledFrame
+from judge.sampling import NoSharpFrames, SampledFrame
 from judge.submission import SubmissionResult, run_submission
 
 DESCRIPTION = "เห็นรอยแตกเมื่อเปิดกล่อง private-complaint"
@@ -380,3 +380,21 @@ def test_uploaded_video_without_inputs_does_not_fall_back_to_sample(
     with pytest.raises(PipelineError, match="JudgeInputs"):
         run(folder)
     assert not (folder / "verdict.json").exists()
+
+
+def test_reviewed_video_without_sharp_frames_publishes_evidence_request(
+    case: tuple[Path, JudgeInputs, FakeResponses], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    folder, inputs, responses = case
+
+    def no_sharp_frames(_path: Path) -> list[SampledFrame]:
+        raise NoSharpFrames("No usable frames.")
+
+    monkeypatch.setattr("judge.pipeline.sample_frames", no_sharp_frames)
+    result = run(folder, inputs.model_copy(update={"description": ""}))
+
+    saved = SubmissionResult.model_validate_json((folder / "submission.json").read_bytes())
+    assert saved.verdict == result and saved.feedback is not None
+    assert saved.feedback.result == "needs_more_evidence"
+    assert "usable video" in saved.feedback.reason.en
+    assert responses.calls == []

@@ -127,9 +127,13 @@ def write_submission(directory: Path, result: SubmissionResult) -> None:
 
 
 def write_video_submission(
-    directory: Path, verdict: Verdict, video_status: VideoStatus, feedback: ComplaintFeedback
+    directory: Path,
+    verdict: Verdict,
+    video_status: VideoStatus,
+    feedback: ComplaintFeedback,
+    complaint: ComplaintAssessment | None = None,
 ) -> None:
-    """Publish feedback from a video worker that did not compare buyer photos."""
+    """Publish a submission for a worker that did not compare buyer photos."""
     write_submission(
         directory,
         SubmissionResult(
@@ -137,7 +141,7 @@ def write_video_submission(
             video_status=video_status,
             buyer_photos=[],
             photo_findings=[],
-            complaint=None,
+            complaint=complaint,
             feedback=feedback,
         ),
     )
@@ -240,6 +244,34 @@ def _without_video(
     )
 
 
+def assess_standalone_complaint(
+    inputs: SubmissionInputs,
+    *,
+    review: Review | None,
+    model: str | None,
+    client: VisionClient | None,
+    cache_dir: Path,
+) -> ComplaintAssessment | None:
+    """Classify written text separately when usable video evidence is unavailable."""
+    if not inputs.description.strip() or not _approved(
+        review,
+        ReviewRequest(
+            stage="complaint",
+            text=_json(_complaint_payload(inputs.claim_type, inputs.description, [])),
+        ),
+    ):
+        return None
+    return assess_complaint(
+        inputs.claim_type,
+        inputs.description,
+        {},
+        privacy_approved=True,
+        model=model,
+        client=client,
+        cache_dir=cache_dir,
+    )
+
+
 def run_submission(
     case_dir: Path,
     inputs: SubmissionInputs,
@@ -308,22 +340,9 @@ def run_submission(
     complaint = None
     complaint_pending = False
     if verdict is None:
-        if has_text and _approved(
-            review,
-            ReviewRequest(
-                stage="complaint",
-                text=_json(_complaint_payload(inputs.claim_type, inputs.description, [])),
-            ),
-        ):
-            complaint = assess_complaint(
-                inputs.claim_type,
-                inputs.description,
-                {},
-                privacy_approved=True,
-                model=model,
-                client=client,
-                cache_dir=cache_dir,
-            )
+        complaint = assess_standalone_complaint(
+            inputs, review=review, model=model, client=client, cache_dir=cache_dir
+        )
         complaint_pending = has_text and complaint is None
         verdict = _without_video(
             directory.name,
