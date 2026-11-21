@@ -22,7 +22,7 @@ from pydantic import BaseModel
 from fastapi.responses import FileResponse, StreamingResponse
 
 from api.app.contracts import Case, Decision, Listing, ProgressEvent
-from api.app.fake import FakeJudge, Judge
+from api.app.fake import FakeJudge, Judge, write_sample_verdict
 from api.app.sample import LISTING, ORDER, OrderWithListing
 from api.app.store import Store, get_case, list_cases, save_case
 from api.app.views import (
@@ -59,16 +59,15 @@ def authorize(x_demo_passcode: Annotated[str, Header()]) -> None:
 
 def create_app(data_dir: Path | None = None, judge: Judge | None = None) -> FastAPI:
     store = Store(data_dir or Path("data"))
-    worker = judge or FakeJudge()
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        store.initialize()
         with store.transaction() as db:
-            db.execute("CREATE TABLE IF NOT EXISTS initialized (name TEXT PRIMARY KEY)")
             if not db.execute("SELECT 1 FROM initialized WHERE name='sample'").fetchone():
                 folder = store.root / "cases" / "UJ-SAMPLE"
                 folder.mkdir(parents=True, exist_ok=True)
-                verdict = worker.run(folder)
+                verdict = write_sample_verdict(folder)
                 save_case(
                     db,
                     Case(
@@ -90,6 +89,7 @@ def create_app(data_dir: Path | None = None, judge: Judge | None = None) -> Fast
         yield
 
     app = FastAPI(title="Case review API", lifespan=lifespan)
+    app.state.judge = judge if judge is not None else FakeJudge()
     router = APIRouter(prefix="/api", dependencies=[Depends(authorize)])
     deferred = {
         501: {"model": ErrorDetail, "description": "Planned for the upload integration checkpoint."}
@@ -127,17 +127,17 @@ def create_app(data_dir: Path | None = None, judge: Judge | None = None) -> Fast
 
     @router.get("/cases/{id}")
     def buyer_case(id: str) -> BuyerCase:
-        with store.transaction() as db:
+        with store.connection() as db:
             return buyer_view(get_case(db, id))
 
     @router.get("/my/cases")
     def my_cases() -> list[BuyerCase]:
-        with store.transaction() as db:
+        with store.connection() as db:
             return [buyer_view(case) for case in list_cases(db)]
 
     @router.get("/shop/cases")
     def inbox() -> list[ShopSummary]:
-        with store.transaction() as db:
+        with store.connection() as db:
             cases = list_cases(db)
         summaries = [
             ShopSummary(
@@ -157,7 +157,7 @@ def create_app(data_dir: Path | None = None, judge: Judge | None = None) -> Fast
 
     @router.get("/shop/cases/{id}")
     def shop_case(id: str) -> Case:
-        with store.transaction() as db:
+        with store.connection() as db:
             return get_case(db, id)
 
     @router.post("/shop/cases/{id}/decision")
@@ -192,7 +192,7 @@ def create_app(data_dir: Path | None = None, judge: Judge | None = None) -> Fast
     )
     def events(id: str) -> StreamingResponse:
         """Replay the sample events for a completed case."""
-        with store.transaction() as db:
+        with store.connection() as db:
             case = get_case(db, id)
         if case.status not in ("ready", "decided"):
             raise HTTPException(501, "Live job events arrive with the upload integration.")
@@ -203,13 +203,13 @@ def create_app(data_dir: Path | None = None, judge: Judge | None = None) -> Fast
 
     @router.post("/cases/{id}/video", responses=deferred, openapi_extra=multipart(VideoForm))
     def upload(id: str) -> UploadResult:
-        with store.transaction() as db:
+        with store.connection() as db:
             get_case(db, id)
         raise HTTPException(501, "Video upload is not implemented in the sample API.")
 
     @router.post("/cases/{id}/upload-link", responses=deferred)
     def upload_link(id: str) -> UploadLink:
-        with store.transaction() as db:
+        with store.connection() as db:
             get_case(db, id)
         raise HTTPException(501, "Phone upload is not implemented in the sample API.")
 
