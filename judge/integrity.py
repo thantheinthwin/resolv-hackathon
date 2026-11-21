@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from judge.privacy import SanitizedFrame
 
+# fmt: off  # temporary diagnostic; removed before merge
 MIN_HISTORY = 3
 MAX_COMPARABLE_GAP_SECONDS = 2.0
 MIN_SHARPNESS = 60.0
@@ -124,6 +125,8 @@ def _phash(gray: np.ndarray) -> np.ndarray:
     threshold = float(np.median(dct.ravel()[1:]))
     return (dct > threshold).ravel()
 
+
+# fmt: on
 
 def _continuity(frames: Sequence[SanitizedFrame]) -> tuple[IntegrityCheck, list[IntegrityFlag]]:
     if len(frames) < MIN_HISTORY + 2:
