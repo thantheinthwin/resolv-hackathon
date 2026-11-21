@@ -65,8 +65,8 @@ class ReviewRequired(PipelineError):
         super().__init__(f"Human privacy review required for {stage}.")
 
 
-class JudgeInputs(BaseModel):
-    """Case inputs assembled by the trusted API, never from upload form fields."""
+class SubmissionInputs(BaseModel):
+    """Case context assembled by the trusted API, never from upload form fields."""
 
     model_config = ConfigDict(extra="forbid", strict=True, frozen=True, hide_input_in_errors=True)
 
@@ -74,12 +74,18 @@ class JudgeInputs(BaseModel):
     description: str = Field(default="", repr=False)
     order: Order = Field(repr=False)
     listing: Listing = Field(repr=False)
-    listing_photos: tuple[ReviewedListingPhoto, ...] = Field(min_length=1, max_length=3, repr=False)
+    listing_photos: tuple[ReviewedListingPhoto, ...] = Field(default=(), max_length=3, repr=False)
     opening: OpeningObservation | None = Field(default=None, repr=False)
     redactions_by_timestamp: dict[Seconds, tuple[RedactionRegion, ...]] = Field(
         default_factory=dict
     )
     quality: EvidenceQuality = Field(default_factory=EvidenceQuality)
+
+
+class JudgeInputs(SubmissionInputs):
+    """Required inputs for the video worker entry point."""
+
+    listing_photos: tuple[ReviewedListingPhoto, ...] = Field(min_length=1, max_length=3, repr=False)
 
 
 @dataclass(frozen=True)
@@ -175,7 +181,7 @@ def _review_assets(
 
 def run_uploaded_case(
     directory: Path,
-    inputs: JudgeInputs,
+    inputs: SubmissionInputs,
     *,
     review: Review | None,
     opening_review: OpeningReviewer | None,

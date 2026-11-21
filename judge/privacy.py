@@ -131,21 +131,16 @@ def mask_frame_regions(
     )
 
 
-def sanitize_frame(
-    frame: SampledFrame,
+def sanitize_image(
+    pixels: np.ndarray,
     *,
     detector: FaceDetector | None = None,
     redactions: Sequence[RedactionRegion] = (),
-) -> SanitizedFrame:
-    """Blur visible frontal faces and mask explicitly supplied sensitive areas.
-
-    Additional regions (e.g. shipping-label address and telephone number)
-    must be located locally. This function does NOT find text or authorize
-    publication. On failure it raises without returning an unredacted image.
-    """
-    _validate_pixels(frame.image)
+) -> tuple[np.ndarray, int]:
+    """Redact a private image copy before separate human review."""
+    _validate_pixels(pixels)
     local_detector = detector if detector is not None else _load_face_detector()
-    image = frame.image.copy()
+    image = pixels.copy()
     try:
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         boxes = local_detector.detectMultiScale(
@@ -163,6 +158,22 @@ def sanitize_frame(
     except (cv2.error, ValueError, TypeError, RuntimeError) as exc:
         raise PrivacyError("Face detection failed; frame cannot be released.") from exc
 
+    return image, faces
+
+
+def sanitize_frame(
+    frame: SampledFrame,
+    *,
+    detector: FaceDetector | None = None,
+    redactions: Sequence[RedactionRegion] = (),
+) -> SanitizedFrame:
+    """Blur visible frontal faces and mask explicitly supplied sensitive areas.
+
+    Additional regions (e.g. shipping-label address and telephone number)
+    must be located locally. This function does NOT find text or authorize
+    publication. On failure it raises without returning an unredacted image.
+    """
+    image, faces = sanitize_image(frame.image, detector=detector, redactions=redactions)
     return SanitizedFrame(
         timestamp_seconds=frame.timestamp_seconds,
         image=image,
