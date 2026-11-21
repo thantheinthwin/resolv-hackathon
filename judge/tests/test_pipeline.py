@@ -26,6 +26,7 @@ class FakeResponses:
     def __init__(self) -> None:
         self.calls: list[tuple[str, str]] = []
         self.lock = Lock()
+        self.extra_finding = False
 
     def parse(self, **kwargs: object) -> SimpleNamespace:
         schema = kwargs["text_format"].__name__
@@ -48,6 +49,10 @@ class FakeResponses:
                 if name == "damage"
                 else []
             )
+            if findings and self.extra_finding:
+                findings.insert(
+                    0, {"t": 3.1254, "note_en": "Packaging crease.", "note_th": "กล่องมีรอยพับ"}
+                )
             result = {
                 "status": "flag" if findings else "pass",
                 "confidence": 0.97,
@@ -55,7 +60,10 @@ class FakeResponses:
                 "note_en": "Compared with listing.",
             }
         elif schema == "ComplaintSelection":
-            result = {"confidence": 0.96, "allegations": [{"kind": "damage", "finding_ids": [0]}]}
+            result = {
+                "confidence": 0.96,
+                "allegations": [{"kind": "damage", "finding_ids": [int(self.extra_finding)]}],
+            }
         else:
             assert schema == "ReasonSelection"
             result = {"finding_id": 0}
@@ -212,6 +220,62 @@ def test_unapproved_complaint_keeps_visual_leaning_and_forces_unsure(
     assert all(
         schema not in ("ComplaintSelection", "ReasonSelection") for schema, _ in responses.calls
     )
+
+
+def test_retry_after_reason_review_and_publication_failure_reuses_model_results(
+    case: tuple[Path, JudgeInputs, FakeResponses], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    folder, inputs, responses = case
+    client = SimpleNamespace(responses=responses)
+
+    def defer_reason(request: ReviewRequest) -> bool:
+        if request.stage == "reason":
+            raise ReviewRequired(request.stage)
+        return True
+
+    with pytest.raises(ReviewRequired, match="reason"):
+        run(folder, inputs, review=defer_reason, model="test-model", client=client)
+
+    def fail_publication(path: Path, content: bytes) -> None:
+        raise OSError("Synthetic failure before publishing verdict")
+
+    with monkeypatch.context() as patch:
+        patch.setattr("judge.write_atomically", fail_publication)
+        with pytest.raises(OSError, match="Synthetic failure"):
+            run(folder, inputs, review=lambda request: True, model="test-model", client=client)
+    assert not (folder / "verdict.json").exists()
+
+    verdict = run(folder, inputs, review=lambda request: True, model="test-model", client=client)
+    assert verdict.display == "clear"
+    assert [schema for schema, _ in responses.calls] == [
+        "VisionObservation",
+        *["MatchResponse"] * 5,
+        "ComplaintSelection",
+        "ReasonSelection",
+    ]
+
+
+def test_grounded_complaint_links_prioritize_evidence_and_scope_the_reason(
+    case: tuple[Path, JudgeInputs, FakeResponses],
+) -> None:
+    folder, inputs, responses = case
+    responses.extra_finding = True
+    verdict = run(
+        folder,
+        inputs,
+        review=lambda request: True,
+        model="test-model",
+        client=SimpleNamespace(responses=responses),
+    )
+
+    assert verdict.verdict == "buyer_right"
+    assert [item.t for item in verdict.evidence] == [FINDING_TIME, 3.1254]
+    assert [item.t for item in verdict.checks["damage"].findings] == [3.1254, FINDING_TIME]
+    assert "4.1254" in verdict.reason.en and "3.1254" not in verdict.reason.en
+    reason_prompt = next(
+        payload for schema, payload in responses.calls if schema == "ReasonSelection"
+    )
+    assert "Packaging crease" not in reason_prompt
 
 
 def test_uploaded_video_without_inputs_does_not_fall_back_to_sample(
