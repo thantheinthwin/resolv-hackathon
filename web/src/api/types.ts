@@ -791,7 +791,10 @@ export interface operations {
     };
     delete_case_api_cases__id__delete: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Delete only if awaiting a video. */
+                draft?: boolean;
+            };
             header: {
                 "x-demo-passcode": string;
             };
@@ -808,6 +811,15 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
             };
             /** @description Validation Error */
             422: {

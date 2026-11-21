@@ -1,0 +1,90 @@
+.mediaSurface {
+  position: relative;
+  width: 100%;
+  height: 10rem;
+  border-radius: 8px;
+  background: var(--soft);
+}
+
+.pickSurface,
+.previewFallback,
+.dropFeedback {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  align-content: center;
+  justify-items: center;
+  gap: 8px;
+  padding: 12px;
+  border: 1px dashed var(--muted-foreground);
+  border-radius: inherit;
+  text-align: center;
+}
+
+.pickSurface {
+  cursor: pointer;
+}
+
+.pickSurface:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.pickSurface:not(:disabled):hover,
+.dropFeedback {
+  border-color: var(--focus);
+  background: var(--selection);
+}
+
+.dropHint {
+  display: none;
+  font-weight: 600;
+}
+
+.pickLabel {
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--yellow);
+  color: var(--color-primary-foreground, #20212d);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.preview {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--color-primary-foreground, #20212d);
+  object-fit: contain;
+}
+
+.previewFallback {
+  color: var(--muted-foreground);
+}
+
+.dropFeedback {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  font-weight: 600;
+}
+
+.fileDetails {
+  display: flex;
+  width: 100%;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+}
+
+.fileDetails strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .dropHint {
+    display: block;
+  }
+}
