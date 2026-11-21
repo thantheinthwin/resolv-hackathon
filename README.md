@@ -2,6 +2,8 @@
 
 Hackathon workspace for reviewing buyer complaints against video evidence, order details, and product listings.
 
+Start with the [agent guide](AGENTS.md) for team rules, service ownership, and contract checks.
+
 | Directory | Purpose |
 | --- | --- |
 | `web/` | Buyer and shop-owner interface |

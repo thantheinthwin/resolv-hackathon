@@ -247,8 +247,9 @@ shop, so no shop ID in paths.
 One Codex session, one prompt per step. Ama and Game check each result. Nobody
 branches until step 6 is merged.
 
-1. **Repo and rules.** Create the repo, add AGENTS.md, PLAN.md, DESIGN.md,
-   WORKFLOW.md, the three folders, `.gitignore`, `.editorconfig`.
+1. **Repo and rules.** Set up the [root agent guide](../AGENTS.md), project
+   documents in `docs/`, service folders and their agent guides, `.gitignore`,
+   and `.editorconfig`.
 2. **Contracts.** "Write `api/app/contracts.py` with the Pydantic models in
    PLAN.md section 6, and `judge/fixtures/verdict.sample.json` that validates
    against them, with a test that checks it."
