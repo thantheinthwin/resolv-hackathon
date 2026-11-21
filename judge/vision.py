@@ -109,7 +109,7 @@ def _client_from_environment() -> VisionClient:
         from openai import OpenAI
     except ImportError as exc:
         raise VisionError("Install the OpenAI Python SDK from judge/requirements.txt.") from exc
-    return OpenAI(api_key=key, max_retries=0)
+    return OpenAI(api_key=key, max_retries=0, base_url="https://api.openai.com/v1")
 
 
 def _ground_result(result: VisionObservation, timestamps: Sequence[float]) -> VisionObservation:
