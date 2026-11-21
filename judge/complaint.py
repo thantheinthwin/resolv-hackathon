@@ -1,13 +1,14 @@
 """Relate a privacy-reviewed written complaint to existing visual findings."""
 
-import json
+from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.app.contracts import Check, ClaimType, Confidence, Finding, Seconds
 from judge.config import get_secret
-from judge.vision import MODEL_TIMEOUT_SECONDS, VisionClient, _client_from_environment
+from judge.text_model import parse_text
+from judge.vision import VisionClient
 
 AllegationKind = Literal["product", "color", "size", "count", "damage", "counterfeit"]
 ComparisonName = Literal["listing", "variant", "count", "damage", "counterfeit"]
@@ -125,6 +126,7 @@ def assess_complaint(
     privacy_approved: bool = False,
     model: str | None = None,
     client: VisionClient | None = None,
+    cache_dir: Path | None = None,
 ) -> ComplaintAssessment:
     """Use the complaint only after visual comparison and separate text review.
 
@@ -149,7 +151,7 @@ def assess_complaint(
         if (check := comparisons.get(name)) is not None and check.status != "unclear"
         for finding in check.findings[:MAX_FINDINGS_PER_CHECK]
     ]
-    payload = {
+    payload: dict[str, object] = {
         "selected_claim_type": claim_type,
         "untrusted_complaint": description,
         "untrusted_findings": [
@@ -165,22 +167,12 @@ def assess_complaint(
     selected_model = model or get_secret("OPENAI_MODEL")
     if not selected_model:
         return fallback
-    transport = client if client is not None else _client_from_environment()
-    messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
-    ]
-    for _attempt in range(2):
-        try:
-            response = transport.responses.parse(
-                model=selected_model,
-                input=messages,
-                text_format=ComplaintSelection,
-                timeout=MODEL_TIMEOUT_SECONDS,
-                store=False,
-            )
-            selection = ComplaintSelection.model_validate(response.output_parsed)
-            return _resolve(selection, kinds, catalogue)
-        except Exception:
-            continue
-    return fallback
+    selection = parse_text(
+        model=selected_model,
+        system=SYSTEM_PROMPT,
+        payload=payload,
+        schema=ComplaintSelection,
+        client=client,
+        cache_dir=cache_dir,
+    )
+    return fallback if selection is None else _resolve(selection, kinds, catalogue)

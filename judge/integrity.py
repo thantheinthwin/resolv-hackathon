@@ -27,6 +27,7 @@ OPENING_WINDOW_SECONDS = 10.0
 NO_CUT_PROOF = "No strong scene change in the sampled frames. "
 NO_CUT_PROOF += "This does not prove the video is unedited."
 CheckStatus = Literal["pass", "flag", "unclear"]
+SealState = Literal["intact", "opened", "unclear"]
 
 
 class IntegrityError(ValueError):
@@ -38,17 +39,12 @@ class StrictModel(BaseModel):
 
 
 class OpeningObservation(StrictModel):
-    """Transient output of a future local/vision observation, never persisted.
-
-    The caller must perform necessary local order-label reading before masking
-    its PII, and only pass observations grounded in a supplied first-10s frame.
-    No model or OCR implementation is provided in this step.
-    """
+    """Transient local review from a first-10s frame, never persisted."""
 
     timestamp_seconds: float = Field(ge=0, allow_inf_nan=False)
-    seal_state: Literal["intact", "opened", "unclear"] = "unclear"
+    seal_state: SealState = "unclear"
     seal_confidence: float = Field(default=0.0, ge=0, le=1, allow_inf_nan=False)
-    observed_order_id: str | None = None
+    observed_order_id: str | None = Field(default=None, repr=False)
     label_confidence: float = Field(default=0.0, ge=0, le=1, allow_inf_nan=False)
 
 
@@ -219,20 +215,23 @@ def _opening_checks(
         confidence=0.0,
         note_en="No grounded opening observation available.",
     )
-    if observation is None or not any(
-        frame.timestamp_seconds <= OPENING_WINDOW_SECONDS
-        and abs(frame.timestamp_seconds - observation.timestamp_seconds)
-        <= GROUNDING_TOLERANCE_SECONDS
-        for frame in frames
-    ):
+    if observation is None:
         return {"seal": unknown, "label": unknown.model_copy(deep=True)}, []
 
-    timestamp = next(
-        frame.timestamp_seconds
-        for frame in frames
-        if abs(frame.timestamp_seconds - observation.timestamp_seconds)
-        <= GROUNDING_TOLERANCE_SECONDS
+    timestamp = min(
+        (
+            frame.timestamp_seconds
+            for frame in frames
+            if frame.timestamp_seconds <= OPENING_WINDOW_SECONDS
+        ),
+        key=lambda t: abs(t - observation.timestamp_seconds),
+        default=None,
     )
+    if (
+        timestamp is None
+        or abs(timestamp - observation.timestamp_seconds) > GROUNDING_TOLERANCE_SECONDS
+    ):
+        return {"seal": unknown, "label": unknown.model_copy(deep=True)}, []
     flags: list[IntegrityFlag] = []
     if observation.seal_confidence < 0.5 or observation.seal_state == "unclear":
         seal = IntegrityCheck(

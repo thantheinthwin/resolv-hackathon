@@ -112,6 +112,25 @@ def _obscure_face(image: np.ndarray, rect: tuple[int, int, int, int]) -> None:
     image[top:bottom, left:right] = cv2.GaussianBlur(pixelated, (kernel, kernel), 0)
 
 
+def _mask_regions(image: np.ndarray, redactions: Sequence[RedactionRegion]) -> None:
+    height, width = image.shape[:2]
+    for area in redactions:
+        if area.x + area.width > width or area.y + area.height > height:
+            raise PrivacyError("Sensitive region extends outside the video frame.")
+        image[area.y : area.y + area.height, area.x : area.x + area.width] = 0
+
+
+def mask_frame_regions(
+    frame: SanitizedFrame, redactions: Sequence[RedactionRegion]
+) -> SanitizedFrame:
+    """Mask additional PII on a copy of an already face-processed frame."""
+    image = frame.image.copy()
+    _mask_regions(image, redactions)
+    return frame.model_copy(
+        update={"image": image, "regions_redacted": frame.regions_redacted + len(redactions)}
+    )
+
+
 def sanitize_frame(
     frame: SampledFrame,
     *,
@@ -138,14 +157,7 @@ def sanitize_frame(
                 raise PrivacyError("Face detector produced an invalid rectangle.")
             _obscure_face(image, tuple(int(value) for value in box))
             faces += 1
-        height, width = image.shape[:2]
-        for area in redactions:
-            if area.x + area.width > width or area.y + area.height > height:
-                raise PrivacyError("Sensitive region extends outside the video frame.")
-            image[
-                area.y : area.y + area.height,
-                area.x : area.x + area.width,
-            ] = 0
+        _mask_regions(image, redactions)
     except PrivacyError:
         raise
     except (cv2.error, ValueError, TypeError, RuntimeError) as exc:

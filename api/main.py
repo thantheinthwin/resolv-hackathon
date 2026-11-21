@@ -27,8 +27,9 @@ from fastapi.responses import FileResponse, StreamingResponse
 
 from api.app.catalog import delivered_orders, require_order
 from api.app.contracts import Case, Decision, Listing, ProgressEvent
-from api.app.fake import FakeJudge, Judge, write_sample_verdict
+from api.app.fake import Judge, write_sample_verdict
 from api.app.jobs import JobRunner
+from api.app.judging import CaseJudge
 from api.app.listings import accept_listing, catalog, photo_response
 from api.app.uploads import accept_video, media_type
 from api.app.sample import ORDER, OrderWithListing
@@ -105,7 +106,7 @@ def create_app(data_dir: Path | None = None, judge: Judge | None = None) -> Fast
             await asyncio.to_thread(runner.close)
 
     app = FastAPI(title="Case review API", lifespan=lifespan)
-    app.state.judge = judge if judge is not None else FakeJudge()
+    app.state.judge = judge if judge is not None else CaseJudge(store)
     router = APIRouter(prefix="/api", dependencies=[Depends(authorize)])
 
     @app.get("/health")
@@ -356,7 +357,7 @@ def create_app(data_dir: Path | None = None, judge: Judge | None = None) -> Fast
         },
     )
     def media(path: str) -> Response:
-        """Serve catalog images and videos associated with an uploaded case."""
+        """Serve catalog images, uploaded videos and evidence referenced by a case verdict."""
         if path == "listings/sample/tee.png":
             return FileResponse(
                 Path(__file__).parent / "fixtures" / "tee.png", media_type="image/png"
@@ -364,6 +365,16 @@ def create_app(data_dir: Path | None = None, judge: Judge | None = None) -> Fast
         if path.startswith("listings/"):
             return photo_response(store, path)
         parts = path.split("/")
+        if len(parts) == 4 and parts[0] == "cases" and parts[2] in {"frames", "listing"}:
+            with store.connection() as db:
+                case = get_case(db, parts[1])
+            ref = "/".join(parts[2:])
+            if case.verdict and any(
+                ref in (pair.frame, pair.listing_photo) for pair in case.verdict.evidence
+            ):
+                asset = store.root / "cases" / case.id / ref
+                if asset.is_file():
+                    return FileResponse(asset)
         if len(parts) == 3 and parts[0] == "cases" and parts[2] == "video.mp4":
             with store.connection() as db:
                 case = get_case(db, parts[1])

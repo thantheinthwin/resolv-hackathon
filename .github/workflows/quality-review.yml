@@ -1,0 +1,52 @@
+name: OpenAI quality review
+on:
+  workflow_run:
+    workflows: [Request quality review]
+    types: [completed]
+permissions:
+  contents: read
+  pull-requests: write
+concurrency:
+  group: quality-review-${{ github.event.workflow_run.pull_requests[0].number || github.run_id }}
+  cancel-in-progress: true
+jobs:
+  review:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      github.event.workflow_run.pull_requests[0].base.ref == 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: quality-review
+    env:
+      PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+      HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Collect source changes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node .github/quality/review.mjs collect
+      - name: Install OpenAI client
+        if: env.REVIEW_READY == 'true'
+        working-directory: .github/quality
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Run hosted reviewer
+        if: env.REVIEW_READY == 'true'
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_CODE_QUALITY_REVIEWER_KEY }}
+          OPENAI_MODEL: ${{ vars.OPENAI_MODEL || 'gpt-6-astra' }}
+        run: node .github/quality/review.mjs review
+      - name: Publish advisory review
+        if: env.REVIEW_READY == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node .github/quality/review.mjs publish

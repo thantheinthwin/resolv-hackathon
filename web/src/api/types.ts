@@ -250,7 +250,7 @@ export interface paths {
         };
         /**
          * Media
-         * @description Serve catalog images and videos associated with an uploaded case.
+         * @description Serve catalog images, uploaded videos and evidence referenced by a case verdict.
          */
         get: operations["media_api_files__path__get"];
         put?: never;
