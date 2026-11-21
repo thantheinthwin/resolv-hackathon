@@ -126,6 +126,9 @@ def _phash(gray: np.ndarray) -> np.ndarray:
     return (dct > threshold).ravel()
 
 
+# fmt: on
+
+
 def _continuity(frames: Sequence[SanitizedFrame]) -> tuple[IntegrityCheck, list[IntegrityFlag]]:
     if len(frames) < MIN_HISTORY + 2:
         return IntegrityCheck(
