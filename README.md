@@ -41,7 +41,7 @@ The existing competition checks and teammate review still apply.
 
 In GitHub Settings → Environments, use the `quality-review` environment,
 restrict deployments to `main`, and add an environment secret named
-`OPEN_AI_CODE_QUALITY_REVIEWER_KEY`. Use a dedicated OpenAI project service-account key with
+`OPENAI_CODE_QUALITY_REVIEWER_KEY`. Use a dedicated OpenAI project service-account key with
 `api.agents.read`, `api.agents.write`, and `api.responses.write`. Set the
 optional environment variable `OPENAI_MODEL` to select an Agents API model.
 

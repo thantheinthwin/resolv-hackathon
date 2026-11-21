@@ -90,7 +90,7 @@ export async function runReview(client, input, instructions, model) {
 }
 
 async function review() {
-  if (!process.env.OPENAI_API_KEY) throw new Error("Set OPEN_AI_CODE_QUALITY_REVIEWER_KEY in the quality-review environment.");
+  if (!process.env.OPENAI_API_KEY) throw new Error("Set OPENAI_CODE_QUALITY_REVIEWER_KEY in the quality-review environment.");
   const { default: OpenAI } = await import("openai");
   const input = readFileSync(join(RUNNER_TEMP, "quality-input.json"), "utf8");
   const instructions = readFileSync(new URL("./rubric.md", import.meta.url), "utf8");
