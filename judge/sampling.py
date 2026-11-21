@@ -4,12 +4,12 @@ These images are UNSANITIZED. Never persist or transmit them before face/PII
 redaction succeeds. This module intentionally performs no external requests.
 """
 
-from dataclasses import dataclass
-from pathlib import Path
 import math
+from pathlib import Path
 
 import cv2
 import numpy as np
+from pydantic import BaseModel, ConfigDict, Field
 
 SAMPLE_INTERVAL_SECONDS = 0.5
 MIN_BLUR_VARIANCE = 60.0
@@ -23,13 +23,14 @@ class SamplingError(ValueError):
     """A video cannot be sampled into usable in-memory frames."""
 
 
-@dataclass(frozen=True)
-class SampledFrame:
+class SampledFrame(BaseModel):
     """Raw video frame and metadata, for privacy processing only."""
 
-    timestamp_seconds: float
+    model_config = ConfigDict(arbitrary_types_allowed=True, frozen=True)
+
+    timestamp_seconds: float = Field(ge=0)
     image: np.ndarray
-    blur_score: float
+    blur_score: float = Field(ge=0)
     scene_change: bool
 
 
