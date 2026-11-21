@@ -36,7 +36,8 @@ from judge.matching import (
     _write_cache,
     compare_listing,
 )
-from judge.privacy import RedactionRegion, SanitizedFrame, sanitize_frames
+from judge.opening_review import OpeningReviewer, collect_opening_review
+from judge.privacy import RedactionRegion, SanitizedFrame, mask_frame_regions, sanitize_frames
 from judge.reasons import generate_reason
 from judge.sampling import sample_frames
 from judge.verdict import EvidenceQuality, decide_verdict, deciding_check_name
@@ -177,6 +178,7 @@ def run_uploaded_case(
     inputs: JudgeInputs,
     *,
     review: Review | None,
+    opening_review: OpeningReviewer | None,
     progress: Progress | None,
     model: str | None,
     client: VisionClient | None,
@@ -205,12 +207,26 @@ def run_uploaded_case(
         intake = inspect_video(video)
     with step("sampling", "code", "Selected video frames"):
         sampled = sample_frames(video)
+    opening = inputs.opening
+    label_region = None
+    if opening is None and opening_review is not None:
+        with step("opening_review", "code", "Checked the opening with the local reviewer"):
+            reviewed = collect_opening_review(sampled, opening_review)
+            if reviewed is not None:
+                opening, label_region = reviewed
     with step("privacy", "code", "Redacted frames for human review"):
         times = {frame.timestamp_seconds for frame in sampled}
         if inputs.redactions_by_timestamp.keys() - times:
             raise PipelineError("Redaction timestamps must match selected frames exactly.")
         frames = sanitize_frames(sampled, redactions_by_timestamp=inputs.redactions_by_timestamp)
         sent = _select_frames(frames)
+        if opening is not None and label_region is not None:
+            sent = [
+                mask_frame_regions(frame, (label_region,))
+                if frame.timestamp_seconds == opening.timestamp_seconds
+                else frame
+                for frame in sent
+            ]
         frame_assets, listing_assets, files = _review_assets(sent, inputs.listing_photos)
         context = _listing_context(inputs.listing, inputs.order)
         visual = ReviewRequest(
@@ -222,7 +238,6 @@ def run_uploaded_case(
         )
         _require_review(review, visual)
     with step("integrity", "code", "Checked continuity and the recorded opening observation"):
-        opening = inputs.opening
         if opening is not None and (
             opening.timestamp_seconds > OPENING_WINDOW_SECONDS
             or opening.timestamp_seconds not in times

@@ -3,6 +3,7 @@
 from pathlib import Path
 
 from api.app.contracts import Verdict
+from judge.opening_review import OpeningReviewer
 from judge.pipeline import (
     JudgeInputs,
     PipelineError,
@@ -23,6 +24,7 @@ def run(
     inputs: JudgeInputs | None = None,
     *,
     review: Review | None = None,
+    opening_review: OpeningReviewer | None = None,
     progress: Progress | None = None,
     model: str | None = None,
     client: VisionClient | None = None,
@@ -39,7 +41,13 @@ def run(
         verdict = Verdict.model_validate({**sample.model_dump(), "case_id": directory.name})
     else:
         verdict = run_uploaded_case(
-            directory, inputs, review=review, progress=progress, model=model, client=client
+            directory,
+            inputs,
+            review=review,
+            opening_review=opening_review,
+            progress=progress,
+            model=model,
+            client=client,
         )
     write_atomically(
         directory / "verdict.json", (verdict.model_dump_json(indent=2) + "\n").encode("utf-8")
