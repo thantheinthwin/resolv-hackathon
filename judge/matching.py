@@ -145,9 +145,7 @@ def _ground_response(response: MatchResponse, timestamps: Sequence[float]) -> Ch
     for evidence in response.findings:
         nearest = min(timestamps, key=lambda t: abs(t - evidence.t))
         if abs(nearest - evidence.t) <= GROUNDING_TOLERANCE_SECONDS:
-            supported.append(
-                Finding(t=nearest, note_en=evidence.note_en, note_th=evidence.note_th)
-            )
+            supported.append(Finding(t=nearest, note_en=evidence.note_en, note_th=evidence.note_th))
     if response.status == "flag" and not supported:
         return Check(
             status="unclear",
@@ -344,12 +342,7 @@ def analyze_step5(
     _validate_photos(listing_photos)
     from judge.vision import observe_product
 
-    visual = observe_product(
-        frames,
-        privacy_approved=True,
-        model=model,
-        client=client,
-    )
+    visual = observe_product(frames, privacy_approved=True, model=model, client=client)
     checks = compare_listing(
         frames,
         visual,
