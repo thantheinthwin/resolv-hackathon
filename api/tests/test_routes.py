@@ -85,6 +85,12 @@ def test_route_contracts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Non
         client.headers["X-Demo-Passcode"] = "for-tests"
         paths = client.get("/openapi.json").json()["paths"]
         assert len(paths) == 14
+        deletion = paths["/api/cases/{id}"]["delete"]
+        assert any(
+            parameter["name"] == "draft" and parameter["in"] == "query"
+            for parameter in deletion["parameters"]
+        )
+        assert "409" in deletion["responses"]
         order = client.get("/api/orders").json()[0]
         assert client.get("/api/listings").json() == [order["listing"]]
         body = {"order_id": order["id"], "claim_type": "damaged", "description": "Damaged tee"}
@@ -101,7 +107,7 @@ def test_route_contracts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Non
         files = {"video": ("test.mp4", b"sample", "video/mp4")}
         assert client.post(buyer_route + "/video", files=files).status_code == 422
         assert client.post("/api/uploads/sample", files=files).status_code == 404
-        assert client.delete(buyer_route).status_code == 204
+        assert client.delete(buyer_route, params={"draft": 1}).status_code == 204
         assert client.get(buyer_route).status_code == 404
         monkeypatch.delenv("DEMO_PASSCODE")
         assert client.get("/api/orders").status_code == 503

@@ -19,6 +19,7 @@ from fastapi import (
     FastAPI,
     Header,
     HTTPException,
+    Query,
     Request,
     Response,
 )
@@ -228,10 +229,19 @@ def create_app(data_dir: Path | None = None, judge: Judge | None = None) -> Fast
             save_case(db, case)
             return case
 
-    @router.delete("/cases/{id}", status_code=204)
-    def delete_case(id: str) -> Response:
+    @router.delete(
+        "/cases/{id}",
+        status_code=204,
+        responses={409: {"model": ErrorDetail}},
+    )
+    def delete_case(
+        id: str,
+        draft: Annotated[bool, Query(description="Delete only if awaiting a video.")] = False,
+    ) -> Response:
         with store.transaction() as db:
             case = get_case(db, id)
+            if draft and case.status != "awaiting_video":
+                raise HTTPException(409, "The video has already been received.")
             if case.status == "checking":
                 raise HTTPException(409, "Case is being checked. Retry deletion once it finishes.")
             for parent in (".replaced", "cases"):
