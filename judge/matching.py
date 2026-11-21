@@ -280,7 +280,8 @@ def compare_listing(
     )
     content: list[dict[str, str]] = [{"type": "input_text", "text": text}]
     for frame in selected:
-        content.append({"type": "input_text", "text": f"VIDEO FRAME t={frame.timestamp_seconds:.3f}s"})
+        label = f"VIDEO FRAME t={frame.timestamp_seconds:.3f}s"
+        content.append({"type": "input_text", "text": label})
         content.append(
             {"type": "input_image", "image_url": _image_data_url(frame.image), "detail": "high"}
         )
