@@ -1,6 +1,7 @@
 "use client";
 
 import { ArrowRight, Link as LinkIcon, Plus } from "lucide-react";
+import { formatPrice } from "../lib/price";
 import { useState } from "react";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
@@ -9,10 +10,6 @@ import { productPath, publicProductOrigin } from "../lib/product-links";
 import type { Listing } from "../lib/models";
 
 type ListingOverviewFields = Omit<Listing, "id">;
-
-function formatPrice(price: number) {
-  return price.toLocaleString(undefined, { maximumFractionDigits: 20 });
-}
 
 export function ProductLink({ id }: { id: string }) {
   const [state, setState] = useState<{ url: string; copied: boolean }>();

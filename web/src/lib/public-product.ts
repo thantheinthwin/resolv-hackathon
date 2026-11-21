@@ -16,10 +16,14 @@ async function catalogRead(parts: string[]) {
   });
 }
 
-export async function findProduct(id: string): Promise<Listing | undefined> {
+export async function listProducts(): Promise<Listing[]> {
   const response = await catalogRead(["listings"]);
   if (!response.ok) throw new Error("Couldn’t load the shop catalogue.");
-  const products: Listing[] = await response.json();
+  return response.json();
+}
+
+export async function findProduct(id: string): Promise<Listing | undefined> {
+  const products = await listProducts();
   return products.find((item) => item.id === id);
 }
 
