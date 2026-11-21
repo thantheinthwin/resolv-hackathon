@@ -98,4 +98,27 @@ def test_reviewed_upload_publishes_grounded_evidence(
             response = client.get(f"/api/files/cases/{case_id}/{ref}")
             assert response.status_code == 200 and response.content.startswith(b"\x89PNG")
         assert client.get(f"/api/files/cases/{case_id}/frames/missing.png").status_code == 404
+        with pytest.raises(ValueError, match="before an upload"):
+            worker.prepare(case_id, video, approve)
         assert len(calls) == before
+
+        # An upload accepted while the operator reviews takes the local path.
+        racing = client.post(
+            "/api/cases", json={"order_id": "UJ-48213", "claim_type": "damaged"}
+        ).json()["id"]
+        approvals.clear()
+
+        def race(stage: str, files: dict[str, bytes]) -> bool:
+            if stage == "visual":
+                assert (
+                    client.post(
+                        f"/api/cases/{racing}/video",
+                        files={"video": ("clip.mp4", video.read_bytes())},
+                    ).status_code
+                    == 202
+                )
+            return approve(stage, files)
+
+        with pytest.raises(ValueError, match="before an upload"):
+            worker.prepare(racing, video, race)
+        assert not list((tmp_path / ".judge-reviews" / racing).iterdir())

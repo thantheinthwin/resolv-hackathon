@@ -1,8 +1,9 @@
 """Case-to-judge adapter and content-bound handoff for reviewed demo recordings."""
 
 import hashlib
-import os
 import shutil
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -57,8 +58,17 @@ class CaseJudge:
         temp.replace(directory / "verdict.json")
         return verdict
 
+    @contextmanager
+    def _uploadable(self, case_id: str) -> Iterator[None]:
+        # Serialize publication with the upload claim, never with model calls.
+        with self.store.transaction() as db:
+            if get_case(db, case_id).status not in {"awaiting_video", "failed"}:
+                raise ValueError("Review must finish before an upload is accepted for this case.")
+            yield
+
     def prepare(self, case_id: str, video: Path, review: Review) -> Verdict:
-        inputs, photos = self._context(case_id)
+        with self._uploadable(case_id):
+            inputs, photos = self._context(case_id)
         root = self.store.root / ".judge-reviews" / case_id
         root.mkdir(parents=True, exist_ok=True, mode=0o700)
         with TemporaryDirectory(dir=root) as tmp:
@@ -68,15 +78,14 @@ class CaseJudge:
             shutil.copyfile(video, clip)
             inspect_video(clip)
             dest = self._review_path(directory, inputs, photos)
-            if dest.is_dir():
-                return Verdict.model_validate_json((dest / "verdict.json").read_bytes())
+            with self._uploadable(case_id):
+                if dest.is_dir():
+                    return Verdict.model_validate_json((dest / "verdict.json").read_bytes())
             verdict = run(directory, inputs=inputs, photos=photos, review=review)
             clip.unlink()
             shutil.rmtree(directory / "cache", ignore_errors=True)
-            try:
-                os.rename(directory, dest)
-            except OSError:
-                if not dest.is_dir():
-                    raise
-                return Verdict.model_validate_json((dest / "verdict.json").read_bytes())
+            with self._uploadable(case_id):
+                if dest.is_dir():
+                    return Verdict.model_validate_json((dest / "verdict.json").read_bytes())
+                directory.rename(dest)
             return verdict
