@@ -23,7 +23,7 @@ from judge.matching import ReviewedListingPhoto
 from judge.local import run_local
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, repr=False)
 class _ReviewContext:
     case: Case
     order: OrderWithListing
@@ -102,16 +102,17 @@ class CaseJudge:
         return verdict
 
     @contextmanager
-    def _uploadable(self, case_id: str) -> Iterator[sqlite3.Connection]:
+    def _uploadable(self, case_id: str) -> Iterator[tuple[sqlite3.Connection, Case]]:
         # Serialize publication with the upload claim, never with model calls.
         with self.store.transaction() as db:
-            if get_case(db, case_id).status not in {"awaiting_video", "failed"}:
+            case = get_case(db, case_id)
+            if case.status not in {"awaiting_video", "failed"}:
                 raise ValueError("Review must finish before an upload is accepted for this case.")
-            yield db
+            yield db, case
 
     def prepare(self, case_id: str, video: Path, review: Review) -> Verdict:
-        with self._uploadable(case_id) as db:
-            context = _context(db, get_case(db, case_id))
+        with self._uploadable(case_id) as (db, case):
+            context = _context(db, case)
         root = self.store.root / ".judge-reviews" / case_id
         root.mkdir(parents=True, exist_ok=True, mode=0o700)
         with TemporaryDirectory(dir=root) as tmp:
