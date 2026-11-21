@@ -53,6 +53,13 @@ try {
       buffer: await readFile(dir + "/sample.mp4"),
     },
   };
+  // A legal MP4 free-space box exercises the upload path above Next's default 10 MiB proxy limit.
+  const padding = Buffer.alloc(11 * 1024 * 1024);
+  padding.writeUInt32BE(padding.length);
+  padding.write("free", 4);
+  const largeMultipart = {
+    video: { ...multipart.video, buffer: Buffer.concat([multipart.video.buffer, padding]) },
+  };
   assert.equal((await phone.request.post("/api/uploads/" + token, { multipart })).status(), 404);
 
   // Generate a QR in this mounted desk, then complete the report and start another.
@@ -103,7 +110,9 @@ try {
   try {
     assert.match(dialog.message(), /permanently deletes.*video/);
     assert.equal(
-      (await phone.request.post("/api/uploads/" + activeToken, { multipart })).status(),
+      (
+        await phone.request.post("/api/uploads/" + activeToken, { multipart: largeMultipart })
+      ).status(),
       202,
     );
   } finally {
@@ -144,6 +153,7 @@ try {
     .locator('[data-case="' + id + '"]')
     .getByText("Review case")
     .click();
+  await seller.getByRole("heading", { name: "Evidence", exact: true }).waitFor();
   await seller.getByText("Unsure: check the video").waitFor();
   await seller.getByLabel("Decision", { exact: true }).selectOption("side_buyer");
   await seller.getByLabel("Explanation for the buyer").fill("Decision for the first report.");
@@ -253,7 +263,9 @@ try {
       const handoff = await authenticated.post(api(path + "/upload-link"));
       assert.equal(handoff.status(), 200);
       const { token } = await handoff.json();
-      const accepted = await phone.request.post(api("uploads/" + token), { multipart });
+      const accepted = await phone.request.post(api("uploads/" + token), {
+        multipart: largeMultipart,
+      });
       assert.equal(accepted.status(), 202);
       assert.match(await (await authenticated.get(api(path + "/events"))).text(), /^event: done/m);
       assert.equal((await (await authenticated.get(api(path))).json()).status, "with_shop");
@@ -266,7 +278,7 @@ try {
       const footage = await authenticated.get(new URL(video_url, integrated).href);
       assert.equal(footage.status(), 200);
       assert.equal(footage.headers()["x-content-type-options"], "nosniff");
-      assert.deepEqual(await footage.body(), multipart.video.buffer);
+      assert.deepEqual(await footage.body(), largeMultipart.video.buffer);
       assert.equal((await authenticated.delete(api(path))).status(), 204);
       console.log("Passed draft-only deletion through the integrated proxy after a phone upload.");
     } finally {

@@ -179,6 +179,7 @@ try {
   await page.getByText("Continue as shop owner").click();
   const row = page.locator('[data-case="' + id + '"]');
   await row.getByText("Review case").click();
+  await page.getByRole("heading", { name: "Evidence", exact: true }).waitFor();
   await page.getByText("Unsure: check the video").waitFor();
   await shot();
   await page.locator("select").selectOption("side_buyer");

@@ -56,6 +56,16 @@ assert.equal((await del(old)).status, 204);
 assert.equal((await api("uploads/" + token, { method: "POST" })).status, 404);
 const id = await create();
 assert.equal((await api("cases/" + id + "/events")).status, 409);
+assert.equal(
+  (
+    await api("cases/" + id + "/video", {
+      method: "POST",
+      headers: { "Content-Type": "multipart/form-data; boundary=fixture" },
+      body: "incomplete multipart",
+    })
+  ).status,
+  422,
+);
 const listingsBefore = (await (await api("listings")).json()).length;
 for (const [price, photo] of [
   ["Infinity", readFileSync(join(dir, "screen-01.png"))],

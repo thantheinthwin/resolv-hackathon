@@ -1,5 +1,6 @@
 import { boundedBody } from "../../../lib/request-body";
 import { apiOrigin } from "../../../lib/api-origin";
+import { integratedAccessError } from "../../../lib/integrated-access";
 
 export const dynamic = "force-dynamic";
 const pathRules: Record<string, RegExp> = {
@@ -16,6 +17,10 @@ async function handle(req: Request, ctx: { params: Promise<{ path: string[] }> }
   )
     return new Response(null, { status: 404 });
   const origin = apiOrigin();
+  if (origin) {
+    const accessError = integratedAccessError(req);
+    if (accessError) return accessError;
+  }
   let body: ArrayBuffer | undefined;
   if (req.method === "POST") {
     try {

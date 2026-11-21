@@ -409,8 +409,9 @@ export async function sample(req: Request, parts: string[]) {
         db.exec("ROLLBACK");
         throw e;
       }
-      const f = await req.formData(),
-        v = f.get("video") ?? f.get("file");
+      const form = await req.formData().catch(() => null);
+      if (!form) return fail("Attach a video file.");
+      const v = form.get("video") ?? form.get("file");
       if (!(v instanceof File) || v.size > 50000000) return fail("Choose a video up to 50 MB.");
       const file = randomUUID(),
         location = path.join(dir, file);
