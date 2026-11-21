@@ -43,9 +43,7 @@ def test_world_readable_env_file_is_rejected(
         config.get_secret("OPENAI_API_KEY")
 
 
-def test_symlinked_env_file_is_rejected(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_symlinked_env_file_is_rejected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     target = tmp_path / "private"
     target.write_text("OPENAI_API_KEY=test\n")
     target.chmod(0o600)
@@ -57,9 +55,7 @@ def test_symlinked_env_file_is_rejected(
         config.get_secret("OPENAI_API_KEY")
 
 
-def test_missing_settings_return_none(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_missing_settings_return_none(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(config, "ENV_FILE", tmp_path / ".env")
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     assert config.get_secret("OPENAI_API_KEY") is None
