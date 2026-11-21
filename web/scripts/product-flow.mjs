@@ -48,9 +48,12 @@ try {
   );
   await page.goto("/");
   await page.getByRole("link", { name: "Continue as buyer" }).click();
-  await page.getByText("Use an existing order", { exact: true }).click();
-  await page.getByRole("button", { name: "Report a problem" }).click();
-  await page.getByRole("radio", { name: "Damaged item" }).click();
+  await page
+    .getByLabel("Product link", { exact: true })
+    .fill(new URL("/products/LS-101", page.url()).href);
+  await page.getByRole("button", { name: "Find my item" }).click();
+  await page.getByRole("button", { name: "Yes, this is my item" }).click();
+  await page.getByRole("radio", { name: "My item arrived damaged" }).click();
   await page.locator("textarea").fill("A tear appeared on the sleeve.");
   await page.getByRole("link", { name: "Switch to shop owner" }).click();
   await page.waitForURL("**/shop");
@@ -58,8 +61,8 @@ try {
   await page.getByRole("link", { name: "Switch to buyer" }).click();
   await page.getByRole("button", { name: "Continue report" }).click();
   assert.equal(await page.locator("textarea").inputValue(), "A tear appeared on the sleeve.");
-  await page.getByRole("button", { name: "Continue to video" }).click();
-  await page.locator("input[type=file]").setInputFiles(join(dir, "sample.mp4"));
+  await page.getByRole("button", { name: "Next: add a video" }).click();
+  await page.locator('input[accept="video/*"]').setInputFiles(join(dir, "sample.mp4"));
   const created = page.waitForResponse((r) => r.url().endsWith("/api/cases") && r.status() === 201);
   await page.getByRole("button", { name: "Send to the shop" }).click();
   const { id } = await (await created).json();
@@ -90,6 +93,7 @@ try {
           ...fixture,
           id: "unrelated-case",
           order_id: "unrelated-order",
+          listing_id: undefined,
           status: "ready",
           display: "unsure",
           created_at: "2099-01-01T00:00:00Z",
@@ -225,43 +229,28 @@ try {
   await page.getByText("No claims yet for this product.").waitFor();
   assert.equal(await claimRow(page, id).count(), 0);
   assert.equal(listing.title, "Everyday cotton tee");
-  const claimLink = new URL("/orders", baseURL);
-  claimLink.searchParams.set("product", listing.id);
+  const claimLink = new URL("/products/" + listing.id, baseURL);
   await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
-  await page.getByRole("button", { name: "Copy claim link" }).click();
+  await page.getByRole("button", { name: "Copy product link" }).click();
   await page.waitForFunction(
-    (url) => navigator.clipboard.readText().then((text) => text === url),
+    (url) => navigator.clipboard.readText().then((value) => value === url),
     claimLink.href,
   );
-
   const pastedBuyer = await browser.newPage({ baseURL });
-  await pastedBuyer.goto("/reports");
-  await pastedBuyer.waitForURL("**/orders#my-reports");
-  const productLinkInput = pastedBuyer.getByRole("searchbox", { name: "Find your product" });
-  await productLinkInput.fill("https://example.invalid/orders?product=" + listing.id);
-  await pastedBuyer.getByText("Use a claim link from this app or type the product name.").waitFor();
-  await productLinkInput.fill(new URL("/orders?product=unavailable", baseURL).href);
-  await pastedBuyer.getByText("This product is unavailable. Try searching by name.").waitFor();
-  await productLinkInput.fill(claimLink.href);
-  const preview = pastedBuyer.getByRole("group", { name: "Product to confirm" });
-  await preview.getByText(duplicateColor, { exact: false }).waitFor();
-  await preview.getByText("Tee and care card", { exact: false }).waitFor();
-  assert.equal(await pastedBuyer.getByRole("radio").count(), 0);
-  await pastedBuyer.getByRole("button", { name: "Confirm product" }).click();
-  await pastedBuyer.getByRole("radio", { name: "Damaged item" }).click();
-  const seededLink = new URL("/orders?product=LS-101", baseURL);
-  await pastedBuyer.goto(seededLink.href);
-  pastedBuyer.once("dialog", (dialog) => {
-    assert.match(dialog.message(), /Replace your current draft/);
-    return dialog.accept();
-  });
-  await pastedBuyer.getByRole("button", { name: "Confirm product" }).click();
-  await pastedBuyer
-    .locator(".order-recap")
-    .getByText(/Midnight Black/)
-    .waitFor();
-  assert.equal(await pastedBuyer.getByRole("radio", { checked: true }).count(), 0);
-
+  await pastedBuyer.goto("/orders");
+  const input = pastedBuyer.getByLabel("Product link", { exact: true });
+  for (const bad of [
+    "https://example.invalid/products/" + listing.id,
+    new URL("/shop/products/" + listing.id, baseURL).href,
+    new URL("/products/unavailable", baseURL).href,
+  ]) {
+    await input.fill(bad);
+    await pastedBuyer.getByRole("button", { name: "Find my item" }).click();
+    await pastedBuyer.locator(".claim-product").getByRole("alert").waitFor();
+  }
+  await input.fill(claimLink.href);
+  await pastedBuyer.getByRole("button", { name: "Find my item" }).click();
+  await pastedBuyer.getByText(duplicateColor, { exact: false }).waitFor();
   const phone = await browser.newPage({
     baseURL,
     viewport: { width: 390, height: 844 },
@@ -269,51 +258,16 @@ try {
     hasTouch: true,
   });
   await phone.goto(claimLink.href);
-  const linkedPreview = phone.getByRole("group", { name: "Product to confirm" });
-  await linkedPreview.getByText(duplicateColor, { exact: false }).waitFor();
-  await assertFits(phone);
-  await phone.goto("/orders");
-  const search = phone.getByRole("searchbox", { name: "Find your product" });
-  const suggestions = phone.getByRole("list", { name: "Matching products" });
-  await search.fill("black cototn t-shirt");
-  await suggestions
-    .getByRole("button")
-    .first()
-    .getByText(/Midnight Black/)
-    .waitFor();
-  await search.press("ArrowDown");
-  assert.match(await phone.locator(":focus").textContent(), /Midnight Black/);
-  await search.fill("black cotton t-shirt");
-  await search.press("Enter");
-  await linkedPreview.getByText(/Midnight Black/).waitFor();
-  await search.fill("Everyday cotton tee");
-  await productRow(phone, "Everyday cotton tee.*Midnight Black").waitFor();
-  await productRow(phone, "Everyday cotton tee.*" + duplicateColor).click();
-  await linkedPreview.getByText("Tee and care card", { exact: false }).waitFor();
-  await phone.getByRole("button", { name: "Confirm product" }).click();
+  await phone.getByRole("link", { name: "Report a problem" }).click();
+  await phone.getByRole("button", { name: "Yes, this is my item" }).click();
   const claimRegion = phone.locator("#start-a-claim");
-  await claimRegion.getByRole("heading", { name: "Start a claim." }).waitFor();
-  await claimRegion.getByRole("heading", { name: "Tell us what went wrong." }).waitFor();
-  assert.equal(await claimRegion.getByRole("searchbox").count(), 0);
-  await phone.getByRole("radio", { name: "Missing items or parts" }).click();
+  await claimRegion.getByRole("heading", { name: "What happened?" }).waitFor();
+  await phone.getByRole("radio", { name: "Something was missing" }).click();
   const standaloneDescription = "The care card was missing from the indigo tee.";
   await phone.locator("textarea").fill(standaloneDescription);
-  await claimRegion.getByRole("button", { name: "Change product" }).click();
-  await linkedPreview.getByText(/Tee and care card/).waitFor();
-  await claimRegion.getByRole("button", { name: "Confirm product" }).click();
-  assert.equal(await phone.locator("textarea").inputValue(), standaloneDescription);
-
-  await phone.goto(seededLink.href);
-  await linkedPreview.getByText("Midnight Black", { exact: false }).waitFor();
-  phone.once("dialog", (dialog) => {
-    assert.match(dialog.message(), /Replace your current draft/);
-    return dialog.dismiss();
-  });
-  await phone.getByRole("button", { name: "Confirm product" }).click();
-  await phone.getByRole("button", { name: "Continue report", exact: true }).click();
-  assert.equal(await phone.locator("textarea").inputValue(), standaloneDescription);
-  await phone.getByRole("button", { name: "Continue to video" }).click();
-  await phone.locator("input[type=file]").setInputFiles(join(dir, "sample.mp4"));
+  await phone.getByRole("button", { name: "Next: add a video" }).click();
+  await phone.locator('input[accept="video/*"]').setInputFiles(join(dir, "sample.mp4"));
+  await phone.getByLabel("Add photos (optional)").setInputFiles("../api/fixtures/tee.png");
   const standaloneCreated = phone.waitForResponse(
     (r) => r.url().endsWith("/api/cases") && r.status() === 201,
   );
@@ -353,6 +307,7 @@ try {
 
   await claimRow(page, standaloneId).getByRole("button", { name: "Review case" }).click();
   await page.getByText(standaloneDescription, { exact: true }).waitFor();
+  await page.getByRole("img", { name: "Shopper photo 1" }).waitFor();
   await reviewRow(page, standaloneId).locator('[aria-current="true"]').waitFor();
   assert.equal(await reviewRow(page, secondId).count(), 0);
   await page.getByLabel("Decision", { exact: true }).selectOption("side_buyer");

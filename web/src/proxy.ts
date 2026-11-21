@@ -3,6 +3,11 @@ import { apiOrigin } from "./lib/api-origin";
 import { integratedAccessError } from "./lib/integrated-access";
 
 export function proxy(request: NextRequest) {
+  if (
+    request.method === "GET" &&
+    /^\/products\/[\w-]+(?:\/photos\/[0-2])?\/?$/.test(request.nextUrl.pathname)
+  )
+    return NextResponse.next();
   const error = apiOrigin() ? integratedAccessError(request) : undefined;
   return error ?? NextResponse.next();
 }

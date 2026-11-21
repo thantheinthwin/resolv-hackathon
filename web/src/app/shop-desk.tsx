@@ -1,6 +1,7 @@
 "use client";
 
 import { ArrowLeft, ArrowRight, ChevronDown } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Alert, AlertDescription } from "../components/ui/alert";
 import { Badge } from "../components/ui/badge";
@@ -10,7 +11,8 @@ import { claims, type ShopCase, type InboxCase, type Listing, type Order } from 
 import { CheckProgress } from "./check-progress";
 import { DeskShell } from "./desk-shell";
 import { ProductWizard } from "./product-wizard";
-import { ListingOverview, ProductClaimLink, Products } from "./products";
+import { productPath, shopProductPath } from "../lib/product-links";
+import { ListingOverview, ProductLink, Products } from "./products";
 import { Review } from "./review";
 
 const queues = [
@@ -93,7 +95,7 @@ function CaseRows({
             <h2>{product ? claims[item.claim_type] : item.product}</h2>
             {!product && <p>{claims[item.claim_type]}</p>}
             <small>
-              {item.order_id !== undefined
+              {item.order_id != null
                 ? "Order " + item.order_id
                 : "Product reference " + item.listing_id.slice(0, 8)}{" "}
               ·{" "}
@@ -219,12 +221,21 @@ function CaseSidebar({
   );
 }
 
-export function ShopDesk({ sampleMode }: { sampleMode: boolean }) {
-  const [view, setView] = useState<ShopView>("inbox");
+export function ShopDesk({
+  initialProduct,
+  showProducts = false,
+}: {
+  initialProduct?: Listing;
+  showProducts?: boolean;
+}) {
+  const router = useRouter();
+  const [view, setView] = useState<ShopView>(
+    initialProduct ? "product" : showProducts ? "products" : "inbox",
+  );
   const [cases, setCases] = useState<InboxCase[]>();
   const [listings, setListings] = useState<Listing[]>();
   const [orderListings, setOrderListings] = useState<Map<string, string>>();
-  const [product, setProduct] = useState<Listing>();
+  const [product, setProduct] = useState<Listing | undefined>(initialProduct);
   const [dirtyProduct, setDirtyProduct] = useState(false);
   const [savingProduct, setSavingProduct] = useState(false);
   const [queue, setQueue] = useState<Queue>("review");
@@ -334,13 +345,20 @@ export function ShopDesk({ sampleMode }: { sampleMode: boolean }) {
     if (view === "add-product") setDirtyProduct(false);
     setError("");
     setLoadError("");
+    if (initialProduct && (target === "products" || target === "inbox")) {
+      router.push(target === "products" ? "/shop?view=products" : "/shop");
+      return;
+    }
     if (target === "product") setOrderError("");
     setReviewOrder(undefined);
     setView(target);
   }
 
   function openProduct(listing: Listing) {
-    setProduct(listing);
+    if (product?.id !== listing.id || !initialProduct) {
+      router.push(shopProductPath(listing.id));
+      return;
+    }
     navigate("product");
   }
 
@@ -349,7 +367,7 @@ export function ShopDesk({ sampleMode }: { sampleMode: boolean }) {
     setProduct(listing);
     setDirtyProduct(false);
     setOrderError("");
-    setView("product");
+    router.push(shopProductPath(listing.id));
   }
 
   async function openCase(summary: InboxCase, listing?: Listing) {
@@ -478,7 +496,12 @@ export function ShopDesk({ sampleMode }: { sampleMode: boolean }) {
               {product.title}
               <span className="heading-period">.</span>
             </h1>
-            {sampleMode && <ProductClaimLink key={product.id} id={product.id} />}
+            <div className="actions">
+              <a className="text-link" href={productPath(product.id)}>
+                View public page
+              </a>
+              <ProductLink key={product.id} id={product.id} />
+            </div>
           </div>
           <section className="panel product-details" aria-label="Listing details">
             <ListingOverview listing={product} />

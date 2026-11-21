@@ -6,9 +6,12 @@ const baseURL = process.env.REHEARSAL_URL || "http://127.0.0.1:3000";
 const dir = process.env.REHEARSAL_DIR || "../data/rehearsal";
 
 async function startOrderReport(page) {
-  const order = page.getByRole("button", { name: "Report a problem" });
-  if (!(await order.isVisible()))
-    await page.getByText("Use an existing order", { exact: true }).click();
+  const order = page.getByRole("button", { name: "Yes, this is my item" });
+
+  await page
+    .getByLabel("Product link", { exact: true })
+    .fill(new URL("/products/LS-101", page.url()).href);
+  await page.getByRole("button", { name: "Find my item" }).click();
   await order.click();
 }
 
@@ -17,8 +20,8 @@ try {
   await desktop.goto("/");
   await desktop.getByText("Continue as buyer").click();
   await startOrderReport(desktop);
-  await desktop.getByRole("radio", { name: "Missing items or parts" }).click();
-  await desktop.getByText("Continue to video").click();
+  await desktop.getByRole("radio", { name: "Something was missing" }).click();
+  await desktop.getByText("Next: add a video").click();
   const create = desktop.waitForResponse((r) => r.url().endsWith("/api/cases"));
   await desktop.getByRole("button", { name: "Show QR code" }).click();
   const { id } = await (await create).json();
@@ -63,10 +66,10 @@ try {
   assert.equal((await phone.request.post("/api/uploads/" + token, { multipart })).status(), 404);
 
   // Generate a QR in this mounted desk, then complete the report and start another.
-  await desktop.getByRole("link", { name: "Start a claim" }).click();
+  await desktop.getByRole("link", { name: "Report a problem" }).click();
   await startOrderReport(desktop);
-  await desktop.getByRole("radio", { name: "Damaged item" }).click();
-  await desktop.getByRole("button", { name: "Continue to video" }).click();
+  await desktop.getByRole("radio", { name: "My item arrived damaged" }).click();
+  await desktop.getByRole("button", { name: "Next: add a video" }).click();
   const secondCreated = desktop.waitForResponse((response) =>
     response.url().endsWith("/api/cases"),
   );
@@ -79,10 +82,10 @@ try {
     202,
   );
   await desktop.getByRole("heading", { name: "Sent to the shop." }).waitFor();
-  await desktop.getByRole("link", { name: "Start a claim" }).click();
+  await desktop.getByRole("link", { name: "Report a problem" }).click();
   await startOrderReport(desktop);
-  await desktop.getByRole("radio", { name: "Damaged item" }).click();
-  await desktop.getByRole("button", { name: "Continue to video" }).click();
+  await desktop.getByRole("radio", { name: "My item arrived damaged" }).click();
+  await desktop.getByRole("button", { name: "Next: add a video" }).click();
   assert.equal(await desktop.getByText("Open phone upload").count(), 0);
   const thirdCreated = desktop.waitForResponse((response) => response.url().endsWith("/api/cases"));
   await desktop.getByRole("button", { name: "Show QR code" }).click();
@@ -122,11 +125,8 @@ try {
   await desktop
     .getByText("Your video reached the shop. The report is still in My reports.")
     .waitFor();
-  await desktop.getByRole("heading", { name: "Choose a product or order." }).waitFor();
-  const startAnother = desktop.getByRole("button", { name: "Report a problem" });
-  if (!(await startAnother.isVisible()))
-    await desktop.getByText("Use an existing order", { exact: true }).click();
-  await startAnother.waitFor();
+  await desktop.getByRole("heading", { name: "Which item do you need help with?" }).waitFor();
+  await desktop.getByLabel("Product link", { exact: true }).waitFor();
   const lateDiscard = await phone.request.delete("/api/cases/" + thirdId + "?draft=true");
   assert.equal(lateDiscard.status(), 409);
   const preserved = await phone.request.get("/api/shop/cases/" + thirdId);

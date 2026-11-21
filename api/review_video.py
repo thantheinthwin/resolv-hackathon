@@ -29,8 +29,17 @@ def main() -> None:
     parser.add_argument("case_id")
     parser.add_argument("video", type=Path)
     parser.add_argument("--data-dir", type=Path, default=Path("data"))
+    parser.add_argument(
+        "--photo",
+        action="append",
+        default=[],
+        type=Path,
+        help="Buyer photo in upload order (up to three)",
+    )
     args = parser.parse_args()
-    verdict = CaseJudge(Store(args.data_dir)).prepare(args.case_id, args.video, review)
+    verdict = CaseJudge(Store(args.data_dir)).prepare(
+        args.case_id, args.video, review, tuple(args.photo)
+    )
     print(f"Prepared {verdict.case_id}. Upload the same recording to this case.")
 
 

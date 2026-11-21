@@ -241,6 +241,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/shop/cases/{id}/photos/{position}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Claim Photo */
+        get: operations["claim_photo_api_shop_cases__id__photos__position__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/files/{path}": {
         parameters: {
             query?: never;
@@ -277,36 +294,6 @@ export interface components {
             /** Note For Buyer */
             note_for_buyer: string | null;
         };
-        /** Case */
-        Case: {
-            /** Id */
-            id: string;
-            /** Order Id */
-            order_id: string;
-            /**
-             * Claim Type
-             * @enum {string}
-             */
-            claim_type: "wrong_item" | "missing" | "damaged" | "counterfeit";
-            /** Description */
-            description: string;
-            /**
-             * Status
-             * @enum {string}
-             */
-            status: "awaiting_video" | "checking" | "ready" | "decided" | "failed";
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-            /** Video Url */
-            video_url?: string | null;
-            verdict?: components["schemas"]["Verdict"] | null;
-            decision?: components["schemas"]["Decision"] | null;
-            /** Progress */
-            progress?: components["schemas"]["ProgressEvent"][];
-        };
         /** Check */
         Check: {
             /**
@@ -326,7 +313,9 @@ export interface components {
         /** CreateCase */
         CreateCase: {
             /** Order Id */
-            order_id: string;
+            order_id?: string | null;
+            /** Listing Id */
+            listing_id?: string | null;
             /**
              * Claim Type
              * @enum {string}
@@ -442,6 +431,28 @@ export interface components {
             buyer_name: string;
             listing: components["schemas"]["Listing"];
         };
+        /**
+         * PhotoFinding
+         * @description Shop evidence referring to a reviewed buyer JPEG within the case.
+         */
+        PhotoFinding: {
+            /**
+             * Check
+             * @enum {string}
+             */
+            check: "listing" | "variant" | "count" | "damage" | "counterfeit";
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pass" | "flag";
+            /** Note En */
+            note_en: string;
+            /** Note Th */
+            note_th: string;
+            /** Photo */
+            photo: string;
+        };
         /** ProgressEvent */
         ProgressEvent: {
             /**
@@ -459,14 +470,55 @@ export interface components {
             /** Th */
             th: string;
         };
+        /** ShopCase */
+        ShopCase: {
+            /** Order Id */
+            order_id?: string | null;
+            /** Listing Id */
+            listing_id?: string | null;
+            /** Id */
+            id: string;
+            /**
+             * Claim Type
+             * @enum {string}
+             */
+            claim_type: "wrong_item" | "missing" | "damaged" | "counterfeit";
+            /** Description */
+            description: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "awaiting_video" | "checking" | "ready" | "decided" | "failed";
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Buyer Photo Count
+             * @default 0
+             */
+            buyer_photo_count: number;
+            /** Video Url */
+            video_url?: string | null;
+            verdict?: components["schemas"]["Verdict"] | null;
+            decision?: components["schemas"]["Decision"] | null;
+            /** Progress */
+            progress?: components["schemas"]["ProgressEvent"][];
+            /** Photo Findings */
+            photo_findings?: components["schemas"]["PhotoFinding"][];
+        };
         /** ShopSummary */
         ShopSummary: {
+            /** Order Id */
+            order_id?: string | null;
+            /** Listing Id */
+            listing_id?: string | null;
             /** Id */
             id: string;
             /** Product */
             product: string;
-            /** Order Id */
-            order_id: string;
             /**
              * Claim Type
              * @enum {string}
@@ -922,7 +974,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Case"];
+                    "application/json": components["schemas"]["ShopCase"];
                 };
             };
             /** @description Validation Error */
@@ -959,7 +1011,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Case"];
+                    "application/json": components["schemas"]["ShopCase"];
                 };
             };
             /** @description Validation Error */
@@ -1034,6 +1086,8 @@ export interface operations {
                      * Format: binary
                      */
                     video: string;
+                    /** Photos */
+                    photos?: string[];
                 };
             };
         };
@@ -1146,6 +1200,8 @@ export interface operations {
                      * Format: binary
                      */
                     video: string;
+                    /** Photos */
+                    photos?: string[];
                 };
             };
         };
@@ -1184,6 +1240,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorDetail"] | components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    claim_photo_api_shop_cases__id__photos__position__get: {
+        parameters: {
+            query?: never;
+            header: {
+                "x-demo-passcode": string;
+            };
+            path: {
+                id: string;
+                position: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

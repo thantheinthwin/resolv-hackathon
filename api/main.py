@@ -26,12 +26,13 @@ from fastapi import (
 from pydantic import BaseModel
 from fastapi.responses import FileResponse, StreamingResponse
 
+from judge.submission import SubmissionResult
 from api.app.catalog import delivered_orders, require_order
 from api.app.contracts import Case, Decision, Listing, ProgressEvent
 from api.app.fake import Judge, write_sample_verdict
 from api.app.jobs import JobRunner
 from api.app.judging import CaseJudge
-from api.app.listings import accept_listing, catalog, photo_response
+from api.app.listings import accept_listing, catalog, photo_response, photo_preview
 from api.app.uploads import accept_video, media_type
 from api.app.sample import ORDER, OrderWithListing
 from api.app.store import Store, case_for_upload_link, get_case, list_cases, save_case
@@ -43,6 +44,7 @@ from api.app.views import (
     ErrorDetail,
     ListingForm,
     VideoForm,
+    ShopCase,
     ShopSummary,
     UploadLink,
     UploadResult,
@@ -160,7 +162,13 @@ def create_app(data_dir: Path | None = None, judge: Judge | None = None) -> Fast
     )
     def create_case(body: CreateCase, request: Request) -> CreatedCase:
         with store.transaction() as db:
-            require_order(db, body.order_id)
+            if body.order_id is not None:
+                require_order(db, body.order_id)
+            elif (
+                db.execute("SELECT 1 FROM products WHERE id=?", (body.listing_id,)).fetchone()
+                is None
+            ):
+                raise HTTPException(404, "Product not found.")
             case = Case(
                 id=f"UJ-{uuid4().hex}",
                 **body.model_dump(),
@@ -187,7 +195,7 @@ def create_app(data_dir: Path | None = None, judge: Judge | None = None) -> Fast
             rows = db.execute(
                 "SELECT c.body, p.title FROM cases AS c "
                 "LEFT JOIN orders AS o ON o.id=c.order_id "
-                "LEFT JOIN products AS p ON p.id=o.product_id"
+                "LEFT JOIN products AS p ON p.id=coalesce(c.listing_id, o.product_id)"
             )
             summaries = []
             for body, title in rows:
@@ -197,6 +205,7 @@ def create_app(data_dir: Path | None = None, judge: Judge | None = None) -> Fast
                         id=case.id,
                         product=title or "Unknown product",
                         order_id=case.order_id,
+                        listing_id=case.listing_id,
                         claim_type=case.claim_type,
                         status=case.status,
                         verdict=case.verdict.verdict if case.verdict else None,
@@ -209,13 +218,28 @@ def create_app(data_dir: Path | None = None, judge: Judge | None = None) -> Fast
             summaries, key=lambda row: (row.display == "unsure", row.created_at), reverse=True
         )
 
+    def reviewed_submission(case: Case) -> SubmissionResult | None:
+        manifest = store.root / "cases" / case.id / "submission.json"
+        if not case.verdict or not case.buyer_photo_count or not manifest.is_file():
+            return None
+        result = SubmissionResult.model_validate_json(manifest.read_bytes())
+        if result.verdict != case.verdict or len(result.buyer_photos) != case.buyer_photo_count:
+            return None
+        return result
+
+    def shop_detail(case: Case) -> ShopCase:
+        reviewed = reviewed_submission(case)
+        return ShopCase(
+            **case.model_dump(), photo_findings=reviewed.photo_findings if reviewed else []
+        )
+
     @router.get("/shop/cases/{id}")
-    def shop_case(id: str) -> Case:
+    def shop_case(id: str) -> ShopCase:
         with store.connection() as db:
-            return get_case(db, id)
+            return shop_detail(get_case(db, id))
 
     @router.post("/shop/cases/{id}/decision")
-    def decide(id: str, decision: Decision) -> Case:
+    def decide(id: str, decision: Decision) -> ShopCase:
         with store.transaction() as db:
             case = get_case(db, id)
             if case.status != "ready" or case.verdict is None:
@@ -227,7 +251,7 @@ def create_app(data_dir: Path | None = None, judge: Judge | None = None) -> Fast
             case.status = "decided"
             case.decision = decision
             save_case(db, case)
-            return case
+            return shop_detail(case)
 
     @router.delete(
         "/cases/{id}",
@@ -344,6 +368,30 @@ def create_app(data_dir: Path | None = None, judge: Judge | None = None) -> Fast
         async with app.state.intake_slots:
             warnings = await accept_video(request, store.root, app.state.runner, case_id, digest)
         return UploadResult(id=case_id, status="checking", warnings=warnings)
+
+    @router.get("/shop/cases/{id}/photos/{position}", response_class=Response)
+    def claim_photo(id: str, position: int) -> Response:
+        with store.connection() as db:
+            case = get_case(db, id)
+            if not 0 <= position < case.buyer_photo_count:
+                raise HTTPException(404, "Photo not found.")
+            reviewed = reviewed_submission(case)
+            if reviewed is not None:
+                return FileResponse(
+                    store.root / "cases" / case.id / reviewed.buyer_photos[position],
+                    media_type="image/jpeg",
+                    headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"},
+                )
+            folder = store.root / "cases" / case.id / "private-photos"
+            asset = next(folder.glob(f"{position}.*"), None)
+            if asset is None:
+                raise HTTPException(404, "Photo not found.")
+            data = asset.read_bytes()
+        return Response(
+            photo_preview(data),
+            media_type="image/jpeg",
+            headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"},
+        )
 
     @router.get(
         "/files/{path:path}",

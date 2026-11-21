@@ -58,3 +58,9 @@ This aligns the four domain tables (`cases`, `products`, `orders`, `usage`) with
 The competition API uses one passcode-protected shop, local media storage and SQLite job
 claims. The SQL files upgrade competition databases; importing a prototype D1 dump would
 require a separate data conversion.
+
+Product-link claims carry exactly one of `listing_id` or `order_id`. A listing reference identifies the catalog item and never proves a purchase or variant. Listing-only video jobs use local integrity checks; model comparison requires a verified order and the existing human reviews. Migration 0004 preserves existing order-based cases.
+
+Both upload endpoints accept one multipart `video` (5–120 seconds) plus zero to three repeated `photos` files. JPEG, PNG and WebP photos are bounded to 10 MB and 24 megapixels each. All evidence together is bounded to 50 MB, plus 64 KiB for multipart framing. The shop case returns `buyer_photo_count`. Authenticated `GET /api/shop/cases/{id}/photos/{position}` returns a metadata-free JPEG for human review (zero-based). The buyer status response excludes evidence details.
+
+For a verified order, pass repeated `--photo PATH` arguments to `api.review_video` in upload order. The reviewed result binds to the exact video, photos, case and catalog inputs. Uploading other evidence uses local checks. The host’s reviewed multimodal findings are stored in `submission.json` separately from timed video evidence.

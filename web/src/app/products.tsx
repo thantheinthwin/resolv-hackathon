@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
+import { productPath, publicProductOrigin } from "../lib/product-links";
 import type { Listing } from "../lib/models";
 
 type ListingOverviewFields = Omit<Listing, "id">;
@@ -13,12 +14,11 @@ function formatPrice(price: number) {
   return price.toLocaleString(undefined, { maximumFractionDigits: 20 });
 }
 
-export function ProductClaimLink({ id }: { id: string }) {
+export function ProductLink({ id }: { id: string }) {
   const [state, setState] = useState<{ url: string; copied: boolean }>();
 
   async function copyLink() {
-    const url = new URL("/orders", process.env.NEXT_PUBLIC_WEB_ORIGIN || location.origin);
-    url.searchParams.set("product", id);
+    const url = new URL(productPath(id), publicProductOrigin(location.origin));
     try {
       await navigator.clipboard.writeText(url.href);
       setState({ url: url.href, copied: true });
@@ -30,12 +30,12 @@ export function ProductClaimLink({ id }: { id: string }) {
   return (
     <div className="product-claim-link">
       <Button variant="outline" onClick={() => void copyLink()}>
-        <LinkIcon aria-hidden /> Copy claim link
+        <LinkIcon aria-hidden /> Copy product link
       </Button>
-      {state?.copied && <span role="status">Claim link copied.</span>}
+      {state?.copied && <span role="status">Product link copied.</span>}
       {state && !state.copied && (
         <label className="claim-link-fallback">
-          Claim link
+          Product link
           <Input type="url" readOnly value={state.url} onFocus={(event) => event.target.select()} />
         </label>
       )}

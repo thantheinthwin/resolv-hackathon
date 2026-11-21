@@ -81,20 +81,16 @@ in sentence case. Thai text carries `lang="th"`.
 
 ## 6. Buyer flow
 
-Role picker → **Your orders** → **Complaint** → **Video** → **Sent** →
-**My reports**.
+Role picker → **Product link** → **What happened?** → **Add your unboxing video** → **Sent** → **My reports**.
 
-- **Your orders**: table of delivered orders. Product, variant, quantity come
-  from the shop's data; the buyer never types the listing. Action per row:
-  "Report a problem".
-- **Stepper** with three steps: The order, The video, Sent.
+- Each catalog product has a shop detail URL and a public product URL. The shopper pastes the public URL, selects **Find my item**, and confirms **Yes, this is my item**.
+- The confirmation shows the shop’s listing, including available options. Purchase details require a verified order.
+
 - **Complaint**: product recap panel, four claim options in a 2 × 2 grid
   (Wrong item, Something missing, Damaged, Looks fake), optional text in Thai
   or English.
 - **Video**: drop zone or preview, privacy note, and the scan-to-upload QR
-  panel beside it. Hard limits only block a video: not a video, under 5 s,
-  over 2 min, over 50 MB (show these in a mono line). Dark or shaky footage
-  is accepted with a brown warning.
+  panel beside it. Accept one 5–120 second video and up to three JPEG, PNG or WebP photos of up to 10 MB and 24 megapixels each. All files combined must fit within 50 MB. Dark or shaky footage is accepted with a warning.
 - **Sent**: "Sent to the shop." straight after upload. The buyer does not wait
   for the checks.
 - **My reports**: table with a status per report (Sent, Being checked, With

@@ -84,7 +84,8 @@ def test_route_contracts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Non
         assert client.get("/api/orders").status_code == 403
         client.headers["X-Demo-Passcode"] = "for-tests"
         paths = client.get("/openapi.json").json()["paths"]
-        assert len(paths) == 14
+        assert "/api/shop/cases/{id}/photos/{position}" in paths
+        assert len(paths) == 15
         deletion = paths["/api/cases/{id}"]["delete"]
         assert any(
             parameter["name"] == "draft" and parameter["in"] == "query"

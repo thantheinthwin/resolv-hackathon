@@ -10,14 +10,15 @@ export type ReportDetails = Report & {
   listing_id?: string;
   video_url?: string | null;
 };
-export type Case = Schema["Case"];
+export type Case = Omit<Schema["ShopCase"], "photo_findings">;
 export type CaseReference =
   | { order_id: string; listing_id?: never }
   | {
       order_id?: never;
       listing_id: string;
     };
-export type ShopCase = Omit<Case, "order_id"> & CaseReference;
+export type ShopCase = Omit<Case, "order_id" | "listing_id"> &
+  CaseReference & { photo_findings?: Schema["PhotoFinding"][] };
 export type CreatedCase = Schema["CreatedCase"];
 export type UploadLink = Schema["UploadLink"];
 export type UploadResult = Schema["UploadResult"];

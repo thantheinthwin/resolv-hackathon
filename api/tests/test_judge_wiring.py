@@ -234,3 +234,79 @@ def test_review_uses_current_catalog_and_all_photos(
             db.execute("UPDATE listing_photos SET mime='unknown' WHERE path=?", (path,))
         with pytest.raises(ValueError, match="Unsupported listing photo format"):
             worker.prepare(case_id, video, approve)
+
+
+def test_review_bound_to_exact_buyer_photos(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from judge import submission
+    from judge.sampling import NoSharpFrames
+
+    monkeypatch.setenv("DEMO_PASSCODE", "test")
+    monkeypatch.setenv("OPENAI_MODEL", "mock")
+
+    def no_frames(*args, **kwargs):
+        raise NoSharpFrames("uniform test video")
+
+    calls = []
+
+    def match(request, **kwargs):
+        calls.append(request.fingerprint)
+        return submission.PhotoMatch(
+            findings=[
+                submission.PhotoObservation(
+                    photo_index=0,
+                    check="damage",
+                    status="flag",
+                    note_en="Visible tear",
+                    note_th="รอยขาด",
+                )
+            ]
+        )
+
+    monkeypatch.setattr(submission, "run_uploaded_case", no_frames)
+    monkeypatch.setattr(submission, "_match_photos", match)
+    with TestClient(create_app(tmp_path), headers={"X-Demo-Passcode": "test"}) as client:
+        case_id = client.post(
+            "/api/cases", json={"order_id": "UJ-48213", "claim_type": "damaged"}
+        ).json()["id"]
+        worker = CaseJudge(Store(tmp_path))
+        clip = tmp_path / "clip.mp4"
+        writer = cv2.VideoWriter(str(clip), cv2.VideoWriter_fourcc(*"mp4v"), 2, (64, 64))
+        for _ in range(12):
+            writer.write(np.zeros((64, 64, 3), dtype=np.uint8))
+        writer.release()
+        photo = Path(__file__).parents[1] / "fixtures" / "tee.png"
+
+        def deny_photo(request):
+            return not any(name.startswith("buyer-photos/") for name, _ in request.images)
+
+        with pytest.raises(ReviewRequired):
+            worker.prepare(case_id, clip, deny_photo, (photo,))
+        assert not calls
+        approved = worker.prepare(case_id, clip, lambda _: True, (photo,))
+        other = tmp_path / "other" / case_id
+        (other / "private-photos").mkdir(parents=True)
+        (other / "video.mp4").write_bytes(clip.read_bytes())
+        (other / "private-photos/0.png").write_bytes(photo.read_bytes() + b"changed")
+        assert worker.run(other) != approved
+        url = f"/api/cases/{case_id}"
+        token = client.post(url + "/upload-link").json()["token"]
+        assert (
+            client.post(
+                "/api/uploads/" + token,
+                files={
+                    "video": ("clip.mp4", clip.read_bytes()),
+                    "photos": ("image.png", photo.read_bytes()),
+                },
+            ).status_code
+            == 202
+        )
+        assert "event: done" in client.get(url + "/events").text
+        shop_url = f"/api/shop/cases/{case_id}"
+        detail = client.get(shop_url).json()
+        (finding,) = detail["photo_findings"]
+        assert finding["note_en"] == "Visible tear"
+        exact = (tmp_path / "cases" / case_id / finding["photo"]).read_bytes()
+        assert client.get(shop_url + "/photos/0").content == exact
+        assert len(calls) == 1 and "photo_findings" not in client.get(url).json()

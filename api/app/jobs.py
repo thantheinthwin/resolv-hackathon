@@ -57,7 +57,9 @@ class JobRunner:
                 raise RuntimeError("Job runner already started.")
             startup.enter_context(_owner_lock(self.store.root))
             for upload in (self.store.root / ".incoming").glob("*.upload"):
-                if upload.is_file():
+                if upload.is_dir():
+                    shutil.rmtree(upload)
+                elif upload.is_file():
                     upload.unlink()
             pool = startup.enter_context(
                 ThreadPoolExecutor(max_workers=2, thread_name_prefix="case")
@@ -103,13 +105,23 @@ class JobRunner:
     def _backup(self, case_id: str) -> Path:
         return self.store.root / ".replaced" / self._case_dir(case_id).name
 
-    def submit(self, case_id: str, staged_video: Path, link_digest: bytes | None = None) -> None:
+    def submit(
+        self,
+        case_id: str,
+        staged_video: Path,
+        link_digest: bytes | None = None,
+        photos: Path | None = None,
+    ) -> None:
         """Accept an inspected upload, or reject a competing attempt without touching its file."""
         with self._lifecycle:
             if self._pool is None:
                 raise HTTPException(503, "The job runner is unavailable.")
             with staged_video.open("r+b") as source:
                 os.fsync(source.fileno())
+            photo_files = sorted(photos.iterdir()) if photos and photos.is_dir() else []
+            for photo in photo_files:
+                with photo.open("r+b") as handle:
+                    os.fsync(handle.fileno())
             previous: Path | None = None
             installed: Path | None = None
             try:
@@ -121,6 +133,7 @@ class JobRunner:
                     case.status = "checking"
                     case.video_url = f"/api/files/cases/{case.id}/video.mp4"
                     case.progress = []
+                    case.buyer_photo_count = len(photo_files)
                     claim = db.execute(
                         "UPDATE cases SET body=? WHERE id=? AND "
                         "status IN ('awaiting_video','failed')",
@@ -142,12 +155,16 @@ class JobRunner:
                     folder.mkdir(parents=True)
                     installed = folder
                     staged_video.replace(folder / "video.mp4")
+                    if photo_files and photos:
+                        photos.replace(folder / "private-photos")
             except BaseException:
                 if installed is not None:
                     # Leave the caller's temporary file usable if commit failed.
                     video = installed / "video.mp4"
                     if video.exists():
                         video.replace(staged_video)
+                    if photos and (installed / "private-photos").is_dir():
+                        (installed / "private-photos").replace(photos)
                     installed.rmdir()
                 if previous is not None:
                     previous.replace(folder)

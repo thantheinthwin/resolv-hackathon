@@ -33,6 +33,7 @@ export function Uploader({
   const dragDepth = useRef(0);
   const limitsId = useId();
   const [selection, setSelection] = useState<{ file: File; url: string }>();
+  const [photos, setPhotos] = useState<File[]>([]);
   const [previewFailed, setPreviewFailed] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [progress, setProgress] = useState<number | null>(null);
@@ -48,20 +49,36 @@ export function Uploader({
 
   function selectFiles(files: FileList, fromPicker = false) {
     if (uploading.current || blocked) return;
-    if (files.length !== 1) {
-      if (files.length > 1) setError("Choose one video at a time.");
+    if (!files.length) return;
+    const incoming = Array.from(files);
+    const images = incoming.filter((file) =>
+      ["image/jpeg", "image/png", "image/webp"].includes(file.type),
+    );
+    const videos = incoming.filter((file) => !images.includes(file));
+    const file = videos[0];
+    if (
+      videos.length > 1 ||
+      (file && !file.type.startsWith("video/") && !ambiguousVideoTypes.includes(file.type))
+    ) {
+      setError("Choose one video and up to three JPEG, PNG or WebP photos.");
       return;
     }
-    const file = files[0];
-    if (!file.type.startsWith("video/") && !ambiguousVideoTypes.includes(file.type)) {
-      setError("Choose a video file.");
+    const nextPhotos = [...photos, ...images];
+    if (nextPhotos.length > 3 || images.some((photo) => photo.size > 10_000_000)) {
+      setError("Choose up to three photos, 10 MB or smaller each.");
       return;
     }
-    if (file.size > maxVideoBytes) {
-      setError("Choose a video up to 50 MB.");
+    if (
+      (file?.size ?? selection?.file.size ?? 0) +
+        nextPhotos.reduce((sum, photo) => sum + photo.size, 0) >
+      maxVideoBytes
+    ) {
+      setError("Your video and photos must fit within 50 MB together.");
       return;
     }
+    setPhotos(nextPhotos);
     setError("");
+    if (!file) return;
     setPreviewFailed(false);
     setSelection({ file, url: URL.createObjectURL(file) });
     if (fromPicker && !selection) requestAnimationFrame(() => replace.current?.focus());
@@ -85,6 +102,7 @@ export function Uploader({
       const endpoint = await getEndpoint();
       const form = new FormData();
       form.append("video", selection.file);
+      for (const photo of photos) form.append("photos", photo);
       const xhr = new XMLHttpRequest();
       xhr.open("POST", "/api/" + endpoint);
       xhr.upload.onprogress = (event) => {
@@ -206,8 +224,40 @@ export function Uploader({
         </div>
       ) : null}
       <p id={limitsId} className="limit-copy">
-        5 seconds to 2 minutes · Up to 50 MB
+        Video · 5 seconds to 2 minutes. All files together · Up to 50 MB
       </p>
+      <label>
+        {" "}
+        Add photos (optional)
+        <input
+          type="file"
+          multiple
+          accept="image/jpeg,image/png,image/webp"
+          disabled={disabled}
+          onChange={(event) => {
+            if (event.target.files) selectFiles(event.target.files);
+            event.target.value = "";
+          }}
+        />
+      </label>
+      <p className="limit-copy">Up to 3 photos · JPEG, PNG or WebP · 10 MB each</p>
+      {photos.map((photo, index) => (
+        <div className={styles.fileDetails} key={index}>
+          <span>{photo.name}</span>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={disabled}
+            aria-label={"Remove " + photo.name}
+            onClick={() => {
+              setPhotos(photos.filter((_, i) => i !== index));
+              setError("");
+            }}
+          >
+            Remove
+          </Button>
+        </div>
+      ))}
       {selection && (
         <div className="action-row">
           <Button

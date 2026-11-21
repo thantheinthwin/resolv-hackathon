@@ -19,6 +19,8 @@ from api.app.sample import LISTING, OrderWithListing
 from api.app.store import Store, get_case
 from judge import JudgeInputs, ReviewRequest, ReviewRequired, run
 from judge.intake import inspect_video
+from judge.submission import BuyerPhoto, MAX_BUYER_PHOTOS, run_submission
+from api.app.listings import MAX_PHOTO_BYTES, photo_format
 from judge.pipeline import Review
 from judge.matching import ReviewedListingPhoto
 from judge.local import run_local
@@ -32,6 +34,8 @@ class _ReviewContext:
 
 
 def _context(db: sqlite3.Connection, case: Case) -> _ReviewContext:
+    if case.order_id is None:
+        raise ValueError("A product link alone cannot verify a purchase for model comparison.")
     order = delivered_order(db, case.order_id)
     photos = []
     for position, url in enumerate(order.listing.photos, 1):
@@ -70,6 +74,8 @@ class CaseJudge:
             *(photo for _, photo in context.photos),
         ):
             digest.update(hashlib.sha256(data).digest())
+        for photo in sorted((directory / "private-photos").glob("*")):
+            digest.update(b"buyer-photo" + hashlib.sha256(photo.read_bytes()).digest())
         return self.store.root / ".judge-reviews" / directory.name / digest.hexdigest()
 
     def run(self, directory: Path) -> Verdict:
@@ -78,17 +84,20 @@ class CaseJudge:
             db.execute("BEGIN")
             case = get_case(db, directory.name)
             context = None
-            if (self.store.root / ".judge-reviews" / case.id).is_dir():
+            if (
+                case.order_id is not None
+                and (self.store.root / ".judge-reviews" / case.id).is_dir()
+            ):
                 try:
                     context = _context(db, case)
                 except (ValueError, FileNotFoundError):
                     # Unavailable catalog input cannot match an approved request.
                     pass
         if context is None:
-            return run_local(directory, case.claim_type, case.order_id)
+            return run_local(directory, case.claim_type, case.order_id or "")
         reviewed = self._review_path(directory, context)
         if not reviewed.is_dir():
-            return run_local(directory, case.claim_type, case.order_id)
+            return run_local(directory, case.claim_type, context.order.id)
         verdict = Verdict.model_validate_json((reviewed / "verdict.json").read_bytes())
         if verdict.case_id != directory.name:
             raise ValueError("Reviewed verdict belongs to another case.")
@@ -96,6 +105,12 @@ class CaseJudge:
             dest = directory / ref
             dest.parent.mkdir(exist_ok=True)
             shutil.copyfile(reviewed / ref, dest)
+        if (reviewed / "submission.json").is_file():
+            shutil.copyfile(reviewed / "submission.json", directory / "submission.json")
+            if (reviewed / "buyer-photos").is_dir():
+                shutil.copytree(
+                    reviewed / "buyer-photos", directory / "buyer-photos", dirs_exist_ok=True
+                )
         # Publish last so crash recovery only finds a complete evidence pack.
         temp = directory / ".reviewed-verdict.tmp"
         temp.write_text(verdict.model_dump_json(), encoding="utf-8")
@@ -111,7 +126,9 @@ class CaseJudge:
                 raise ValueError("Review must finish before an upload is accepted for this case.")
             yield db, case
 
-    def prepare(self, case_id: str, video: Path, review: Review) -> Verdict:
+    def prepare(
+        self, case_id: str, video: Path, review: Review, photos: tuple[Path, ...] = ()
+    ) -> Verdict:
         with self._uploadable(case_id) as (db, case):
             context = _context(db, case)
         root = self.store.root / ".judge-reviews" / case_id
@@ -122,6 +139,24 @@ class CaseJudge:
             clip = directory / "video.mp4"
             shutil.copyfile(video, clip)
             inspect_video(clip)
+            if len(photos) > MAX_BUYER_PHOTOS:
+                raise ValueError("Choose up to three buyer photos.")
+            buyer_photos = []
+            total = clip.stat().st_size
+            for index, photo in enumerate(photos):
+                with photo.open("rb") as handle:
+                    data = handle.read(MAX_PHOTO_BYTES + 1)
+                total += len(data)
+                if len(data) > MAX_PHOTO_BYTES or total > 50_000_000:
+                    raise ValueError("Photo or combined evidence size exceeds the upload limit.")
+                ext, _ = photo_format(data)
+                folder = directory / "private-photos"
+                folder.mkdir(exist_ok=True)
+                (folder / f"{index}.{ext}").write_bytes(data)
+                image = cv2.imdecode(np.frombuffer(data, dtype=np.uint8), cv2.IMREAD_COLOR)
+                if image is None:
+                    raise ValueError("Could not decode buyer photo.")
+                buyer_photos.append(BuyerPhoto(image=image))
             dest = self._review_path(directory, context)
             with self._uploadable(case_id):
                 if dest.is_dir():
@@ -142,7 +177,14 @@ class CaseJudge:
                 description=context.case.description,
                 listing_photos=tuple(reviewed_photos),
             )
-            verdict = run(directory, inputs=inputs, review=review)
+            if buyer_photos:
+                verdict = run_submission(
+                    directory, inputs, buyer_photos=tuple(buyer_photos), review=review
+                ).verdict
+                (directory / "verdict.json").write_text(verdict.model_dump_json(), encoding="utf-8")
+                shutil.rmtree(directory / "private-photos")
+            else:
+                verdict = run(directory, inputs=inputs, review=review)
             clip.unlink()
             shutil.rmtree(directory / ".judge-cache", ignore_errors=True)
             with self._uploadable(case_id):
