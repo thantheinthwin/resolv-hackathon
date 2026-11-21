@@ -99,6 +99,21 @@ concrete failure scenario:
   - judge ↔ API changes: Ama and Thant both look.
   - API ↔ web changes: Thant and Game both look.
 
+### Before pushing or opening a PR
+
+Each device enables the versioned Git hook during `make setup`. For an existing
+clone, pull this change and run `make review-hooks` once. The reviewer uses the
+signed-in Codex CLI. If setup reports existing hooks, chain the shipped
+pre-push hook from your existing dispatcher and pass it the Git ref updates on stdin. Fetch `origin/main` before publishing. Pushing a branch
+triggers a fresh read-only four-gate review of the outgoing commit against
+the local copy of `origin/main`. Findings or a reviewer failure stop the push.
+
+Before creating a PR, run `make review-pr` on its head checkout, including
+when opening it through a connector or the GitHub website. GitHub has no local
+pre-PR hook. A successful review is reused for the same head and base commits
+in that checkout. Include the relevant service owners in the review request.
+The full test and CI gates still apply at merge.
+
 ## 6. Verify for real
 
 - Run it where it will be demoed: `make dev`, click through the real screens

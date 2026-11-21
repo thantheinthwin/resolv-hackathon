@@ -1,0 +1,10 @@
+#!/bin/sh
+set -eu
+while read -r local_ref local_oid remote_ref remote_oid; do
+    case "$remote_ref" in
+        refs/heads/*)
+            case "$local_oid" in *[!0]*) ;; *) continue ;; esac
+            python3 scripts/review.py "$local_oid" </dev/null || exit 1
+            ;;
+    esac
+done

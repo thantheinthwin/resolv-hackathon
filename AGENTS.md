@@ -9,3 +9,8 @@ Read the guide for each service your task touches, including the other side of a
 - [Judge](judge/AGENTS.md) — evidence analysis and verdict production.
 
 For cross-service changes, follow [service contracts](docs/CONTRACTS.md). Consult the [project plan](docs/PLAN.md) for behavior and the [design guide](docs/DESIGN.md) for screens.
+
+Before publishing a branch, enable the repo pre-push hook with `make review-hooks`.
+Before opening a PR through gh, the GitHub connector, or the browser, run
+`make review-pr` on the PR head checkout and proceed only after it passes.
+Fetch origin/main first and request the relevant service owners in the PR.

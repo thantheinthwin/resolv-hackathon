@@ -1,9 +1,9 @@
 PYTHON ?= python3.12
 VENV := .venv/bin/python
 
-.PHONY: setup dev check score
+.PHONY: setup dev check score review-hooks review-pr
 
-setup:
+setup: review-hooks
 	@command -v ffmpeg >/dev/null && command -v ffprobe >/dev/null || { echo "Install FFmpeg (including ffprobe) before setup." >&2; exit 1; }
 	$(PYTHON) -m venv .venv
 	$(VENV) -m pip install -r requirements-dev.txt
@@ -23,3 +23,9 @@ check:
 score:
 	@test -f judge/score.py || { echo "The judge scoring tool (judge/score.py) is not implemented yet." >&2; exit 1; }
 	$(VENV) -m judge.score
+
+review-hooks:
+	sh scripts/install-review-hook.sh
+
+review-pr:
+	python3 scripts/review.py HEAD
