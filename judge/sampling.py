@@ -23,6 +23,10 @@ class SamplingError(ValueError):
     """A video cannot be sampled into usable in-memory frames."""
 
 
+class NoSharpFrames(SamplingError):
+    """Decoded footage contains no usable evidence frames."""
+
+
 class SampledFrame(BaseModel):
     """Raw video frame and metadata, for privacy processing only."""
 
@@ -135,7 +139,7 @@ def sample_frames(
         if not decoded:
             raise SamplingError("Video contains no decodable frames.")
         if not selected:
-            raise SamplingError("Video contains no usable sharp frames.")
+            raise NoSharpFrames("Video contains no usable sharp frames.")
         limit = min(max_frames, MAX_SELECTED_FRAMES)
         if len(selected) > limit:
             indices = np.linspace(0, len(selected) - 1, num=limit).astype(int)
