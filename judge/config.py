@@ -3,8 +3,6 @@
 import os
 from pathlib import Path
 
-from dotenv import dotenv_values
-
 ENV_FILE = Path(__file__).resolve().parents[1] / ".env"
 ALLOWED_SETTINGS = frozenset({"OPENAI_API_KEY", "OPENAI_MODEL"})
 
@@ -14,10 +12,10 @@ class ConfigError(ValueError):
 
 
 def get_secret(name: str) -> str | None:
-    """Return an explicit environment setting or its private .env fallback.
+    """Read an environment setting, or a restrictive local KEY=value file.
 
-    Environment settings (including Codespaces secrets) always take priority.
-    A local .env must be a regular file, not a symlink, and private to the user.
+    Codespaces secrets and exported environment variables take priority.
+    The simple parser does not interpolate variables or execute shell syntax.
     """
     if name not in ALLOWED_SETTINGS:
         raise ConfigError("Unsupported application setting.")
@@ -34,4 +32,16 @@ def get_secret(name: str) -> str | None:
         raise ConfigError("Local .env must be a regular file.")
     if path.stat().st_mode & 0o077:
         raise ConfigError("Make local .env private with: chmod 600 .env")
-    return dotenv_values(path).get(name) or None
+
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, setting = line.split("=", 1)
+        if key.strip() != name:
+            continue
+        setting = setting.strip()
+        if len(setting) > 1 and setting[0] == setting[-1] and setting[0] in "'\"":
+            setting = setting[1:-1]
+        return setting or None
+    return None
