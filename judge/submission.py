@@ -26,7 +26,6 @@ from judge.matching import (
 )
 from judge.opening_review import OpeningReviewer
 from judge.pipeline import (
-    COMPLAINT_REVIEW_PENDING,
     PipelineError,
     Progress,
     Review,
@@ -124,6 +123,23 @@ def write_submission(directory: Path, result: SubmissionResult) -> None:
     """Publish a validated submission artifact after its referenced assets exist."""
     write_atomically(
         directory / "submission.json", (result.model_dump_json(indent=2) + "\n").encode()
+    )
+
+
+def write_video_submission(
+    directory: Path, verdict: Verdict, video_status: VideoStatus, feedback: ComplaintFeedback
+) -> None:
+    """Publish feedback from a video worker that did not compare buyer photos."""
+    write_submission(
+        directory,
+        SubmissionResult(
+            verdict=verdict,
+            video_status=video_status,
+            buyer_photos=[],
+            photo_findings=[],
+            complaint=None,
+            feedback=feedback,
+        ),
     )
 
 
@@ -315,10 +331,6 @@ def run_submission(
             video_steps,
             complaint_pending=complaint_pending,
         )
-    complaint_pending = complaint_pending or any(
-        step.name == "complaint" and step.output == COMPLAINT_REVIEW_PENDING
-        for step in verdict.steps
-    )
     result = SubmissionResult(
         verdict=verdict,
         video_status=video_status,

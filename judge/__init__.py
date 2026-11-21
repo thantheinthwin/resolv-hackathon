@@ -3,6 +3,7 @@
 from pathlib import Path
 
 from api.app.contracts import Verdict
+from judge.feedback import build_complaint_feedback
 from judge.opening_review import OpeningReviewer
 from judge.pipeline import (
     JudgeInputs,
@@ -14,6 +15,7 @@ from judge.pipeline import (
     run_uploaded_case,
     write_atomically,
 )
+from judge.submission import write_video_submission
 from judge.vision import VisionClient
 
 __all__ = ["JudgeInputs", "PipelineError", "ReviewRequest", "ReviewRequired", "run"]
@@ -49,6 +51,8 @@ def run(
             model=model,
             client=client,
         )
+        feedback = build_complaint_feedback(verdict, inputs.claim_type, video_status="analyzed")
+        write_video_submission(directory, verdict, "analyzed", feedback)
     write_atomically(
         directory / "verdict.json", (verdict.model_dump_json(indent=2) + "\n").encode("utf-8")
     )

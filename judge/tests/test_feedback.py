@@ -7,6 +7,7 @@ import pytest
 from api.app.contracts import Check, CheckStatus, Evidence, Finding, Verdict
 from judge.feedback import VideoStatus, build_complaint_feedback
 from judge.integrity import IntegrityCheck, IntegrityFlag, IntegrityReport
+from judge.matching import _unclear
 from judge.verdict import decide_verdict
 
 T = 2.125
@@ -138,7 +139,7 @@ def test_product_link_integrity_flag_takes_priority() -> None:
         purchase_verified=False,
     )
     assert feedback.result == "needs_human_check"
-    assert "cut" in feedback.reason.en
+    assert "cut" in feedback.reason.en and "confirm" in feedback.reason.en
 
 
 def test_unreviewed_opening_is_a_shop_task() -> None:
@@ -151,7 +152,27 @@ def test_unreviewed_opening_is_a_shop_task() -> None:
 
 def test_comparison_failure_is_a_shop_task() -> None:
     verdict = verdict_for("unclear")
-    verdict.checks["damage"].note_en = "This check could not be completed reliably."
+    verdict.checks["damage"] = _unclear()
     feedback = build_complaint_feedback(verdict, "damaged", video_status="analyzed")
     assert feedback.result == "needs_human_check"
     assert "comparison could not be completed" in feedback.reason.en
+
+
+def test_product_link_counterfeit_review_preserves_the_evidence_request() -> None:
+    feedback = build_complaint_feedback(
+        verdict_for("unclear"), "counterfeit", video_status="analyzed", purchase_verified=False
+    )
+    assert feedback.result == "needs_human_check"
+    assert "authenticity" in feedback.reason.en and "confirm" in feedback.reason.en
+
+
+@pytest.mark.parametrize(
+    ("status", "expected"), [("flag", "complaint_supported"), ("unclear", "needs_more_evidence")]
+)
+def test_model_note_cannot_masquerade_as_a_comparison_failure(
+    status: CheckStatus, expected: str
+) -> None:
+    verdict = verdict_for(status)
+    verdict.checks["damage"].note_en = "This check could not be completed reliably."
+    feedback = build_complaint_feedback(verdict, "damaged", video_status="analyzed")
+    assert feedback.result == expected

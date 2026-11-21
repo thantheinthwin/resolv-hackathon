@@ -138,6 +138,9 @@ def test_run_writes_grounded_assets_and_shared_verdict(
 
     assert (verdict.verdict, verdict.display, verdict.confidence) == ("buyer_right", "clear", 0.96)
     assert Verdict.model_validate_json((folder / "verdict.json").read_bytes()) == verdict
+    saved = SubmissionResult.model_validate_json((folder / "submission.json").read_bytes())
+    assert saved.verdict == verdict and saved.feedback is not None
+    assert saved.feedback.result == "complaint_supported"
     assert len(verdict.evidence) == 1
     evidence = verdict.evidence[0]
     assert evidence.t == FINDING_TIME

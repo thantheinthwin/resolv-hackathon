@@ -10,7 +10,7 @@ from judge.matching import CHECK_NAMES
 from judge.pipeline import write_atomically
 from judge.privacy import sanitize_frames
 from judge.sampling import NoSharpFrames, sample_frames
-from judge.submission import SubmissionResult, write_submission
+from judge.submission import write_video_submission
 from judge.verdict import decide_verdict
 
 
@@ -38,22 +38,16 @@ def run_local(directory: Path, claim_type: ClaimType, order_id: str) -> Verdict:
         integrity=integrity,
     )
     verdict.steps = steps
+    status: VideoStatus = "analyzed" if frames else "no_usable_frames"
+    feedback = build_complaint_feedback(
+        verdict,
+        claim_type,
+        video_status=status,
+        purchase_verified=bool(order_id),
+        comparison_pending=True,
+    )
     if not order_id:
-        status: VideoStatus = "analyzed" if frames else "no_usable_frames"
-        feedback = build_complaint_feedback(
-            verdict, claim_type, video_status=status, purchase_verified=False
-        )
         verdict.reason = feedback.reason
-        write_submission(
-            directory,
-            SubmissionResult(
-                verdict=verdict,
-                video_status=status,
-                buyer_photos=[],
-                photo_findings=[],
-                complaint=None,
-                feedback=feedback,
-            ),
-        )
+    write_video_submission(directory, verdict, status, feedback)
     write_atomically(directory / "verdict.json", verdict.model_dump_json().encode())
     return verdict

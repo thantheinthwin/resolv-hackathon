@@ -135,10 +135,11 @@ the purchased item and variant. An integrity concern or counterfeit claim
 takes priority and goes to the shop. An unperformed opening review or
 unavailable model comparison is also a shop task.
 
-The product-link local path publishes the same `submission.json` shape with
-the feedback and a shared `Verdict` carrying the same reason. The adapter can
-read the feedback for cases with zero reviewed photos and verify that its
-verdict matches the persisted case. Use the feedback's result and reason
+Completed video-only jobs and the local integrity path also publish a
+`submission.json` with feedback. For product-link cases, the shared
+`Verdict` carries the evidence request as its reason. The adapter can
+read feedback even for cases with zero reviewed photos and verify that
+the submission verdict matches the persisted case. Use the feedback's result and reason
 for the shop recommendation. The legacy verdict carries the internal score
 and evidence references. Earlier `submission.json` files can be read with
 `feedback=None`.
