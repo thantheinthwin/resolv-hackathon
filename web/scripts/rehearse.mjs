@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { chromium } from "playwright";
 import assert from "node:assert/strict";
-import { mkdir, readFile } from "node:fs/promises";
+import { mkdir, readFile, truncate, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 const dir = process.env.REHEARSAL_DIR || resolve("../data/rehearsal");
 await mkdir(dir, { recursive: true });
@@ -113,6 +113,14 @@ try {
   const uploadBody = await frameBody.elementHandle();
   const dropzone = page.locator("[data-upload-dropzone]");
   await dropzone.waitFor();
+  const oversized = resolve(dir, "oversized.mp4");
+  await writeFile(oversized, "");
+  await truncate(oversized, 50_000_001);
+  await page.locator('input[accept="video/*"]').setInputFiles(oversized);
+  await page
+    .getByRole("alert")
+    .getByText("Your video is too large. Choose a video that is 50 MB or smaller.")
+    .waitFor();
   const corrupt = {
     name: "bad.mp4",
     type: "video/mp4",
@@ -140,6 +148,16 @@ try {
 
   await dropFiles(page, dropzone, [corrupt]);
   await page.getByText("bad.mp4", { exact: true }).waitFor();
+  await page.route(
+    "**/api/cases/" + id + "/video",
+    (route) => route.fulfill({ status: 413, contentType: "text/plain", body: "Payload Too Large" }),
+    { times: 1 },
+  );
+  await page.getByRole("button", { name: "Send to the shop" }).click();
+  await page
+    .getByRole("alert")
+    .getByText("Your video is too large to upload. Choose a smaller video.")
+    .waitFor();
   await page.getByRole("button", { name: "Send to the shop" }).click();
   await page.getByText("Choose a readable video.").waitFor();
   await assertStableFrame(page, frameBaseline, "Upload rejected");
