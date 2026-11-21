@@ -54,5 +54,5 @@ def test_linked_case_with_usable_frames_asks_shop_to_review_comparison(
     saved = SubmissionResult.model_validate_json((tmp_path / "submission.json").read_bytes())
 
     assert saved.verdict == result
-    assert saved.feedback is not None and saved.feedback.result == "needs_human_check"
+    assert saved.feedback is not None and saved.feedback.result == "needs_more_evidence"
     assert "product comparison" in saved.feedback.reason.en

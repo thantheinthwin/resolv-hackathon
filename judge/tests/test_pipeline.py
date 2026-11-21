@@ -459,7 +459,7 @@ def test_video_entry_points_publish_equivalent_submission(
                 ["ComplaintSelection"] if complaint == "approved" else []
             )
         if complaint == "pending":
-            assert saved.feedback.result == "needs_human_check"
+            assert saved.feedback.result == "needs_more_evidence"
             assert "privacy review" in saved.feedback.reason.en
         saved_results.append(saved)
         requests.append([(request.stage, request.fingerprint) for request in reviews])

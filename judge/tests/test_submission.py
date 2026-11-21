@@ -29,9 +29,10 @@ DESCRIPTION = "พบรอยแตกบนเครื่อง private-compl
 
 
 class Responses:
-    def __init__(self, photo_result: object = None) -> None:
+    def __init__(self, photo_result: object = None, *, allegation: str = "damage") -> None:
         self.calls: list[tuple[str, object]] = []
         self.photo_result = photo_result
+        self.allegation = allegation
 
     def parse(self, **kwargs: object) -> SimpleNamespace:
         schema = kwargs["text_format"].__name__
@@ -43,7 +44,7 @@ class Responses:
                 result = {"findings": [_finding(0), _finding(1)]}
         else:
             assert schema == "ComplaintSelection"
-            result = {"confidence": 0.98, "allegations": [{"kind": "damage", "finding_ids": [0]}]}
+            result = {"confidence": 0.98, "allegations": [{"kind": self.allegation, "finding_ids": [0]}]}
         return SimpleNamespace(output_parsed=result)
 
 
@@ -466,3 +467,107 @@ def test_mixed_submission_cites_the_presentation_time_of_a_variable_rate_frame(
     ]
     [photo_evidence] = result.photo_findings
     assert (tmp_path / photo_evidence.photo).is_file()
+
+
+def _attribute_finding(
+    attribute: str | None, status: str, *, index: int = 0,
+) -> dict[str, object]:
+    return {
+        "photo_index": index,
+        "check": "listing" if attribute == "product" else "variant",
+        "status": status,
+        "visible_attribute": attribute,
+        "note_en": "The photo shows the received item's label or color clearly.",
+        "note_th": "ภาพแสดงฉลากหรือสีของสินค้าที่ได้รับอย่างชัดเจน",
+    }
+
+
+@pytest.mark.parametrize("attribute", ["product", "color"])
+@pytest.mark.parametrize(
+    ("status", "expected"),
+    [("flag", "complaint_supported"), ("pass", "complaint_contradicted")],
+)
+def test_verified_order_and_clear_photo_can_decide_a_specific_complaint(
+    tmp_path: Path, attribute: str, status: str, expected: str,
+) -> None:
+    description = "The delivered model is wrong." if attribute == "product" else "I received the wrong color."
+    responses = Responses(
+        {"findings": [_attribute_finding(attribute, status)]}, allegation=attribute
+    )
+    result = run_submission(
+        tmp_path,
+        _inputs(media=True).model_copy(update={"claim_type": "wrong_item", "description": description}),
+        buyer_photos=_photos(),
+        review=_allow,
+        model="test-model",
+        client=SimpleNamespace(responses=responses),
+    )
+
+    assert result.video_status == "absent"
+    assert result.feedback is not None and result.feedback.result == expected
+    assert "Photo 1" in result.feedback.reason.en and "ภาพที่ 1" in result.feedback.reason.th
+    assert "%" not in result.feedback.model_dump_json()
+    [finding] = result.photo_findings
+    assert finding.visible_attribute == attribute
+    assert finding.photo in result.buyer_photos and (tmp_path / finding.photo).is_file()
+    assert result.verdict.evidence == []
+    assert len(responses.calls) == 2
+    assert description not in str(responses.calls[0])
+    assert SubmissionResult.model_validate_json((tmp_path / "submission.json").read_bytes()) == result
+
+
+@pytest.mark.parametrize(
+    ("scenario", "allegation", "status", "expected", "reason"),
+    [
+        ("photo_only", "", "flag", "complaint_supported", "Photo 1"),
+        ("photo_only", "", "pass", "needs_more_evidence", "which"),
+        ("wrong_aspect", "size", "pass", "needs_more_evidence", "size"),
+        ("unverified", "color", "flag", "needs_more_evidence", "confirm"),
+        ("missing_ordered_color", "color", "flag", "needs_more_evidence", "ordered color"),
+        ("unreviewed_text", "color", "flag", "needs_more_evidence", "privacy"),
+        ("unseen_image", "color", "flag", "needs_more_evidence", "clear photo"),
+        ("ambiguous", "color", "pass", "needs_more_evidence", "clear photo"),
+        ("conflict", "color", "flag", "needs_more_evidence", "conflicting"),
+        ("multiple_items", "color", "pass", "needs_more_evidence", "all"),
+        ("unusable_video", "color", "flag", "complaint_supported", "Photo 1"),
+    ],
+)
+def test_photo_rule_abstains_when_comparison_cannot_resolve_the_complaint(
+    tmp_path: Path, scenario: str, allegation: str, status: str, expected: str, reason: str,
+) -> None:
+    inputs = _inputs(media=True).model_copy(
+        update={"claim_type": "wrong_item", "description": f"Wrong {allegation}." if allegation else ""}
+    )
+    findings = [_attribute_finding(None if scenario == "ambiguous" else "color", status)]
+    photos = _photos()
+    if scenario == "unverified":
+        inputs = inputs.model_copy(update={"order": ORDER.model_copy(update={"id": ""})})
+    if scenario == "missing_ordered_color":
+        variant = ORDER.variant.model_copy(update={"color": ""})
+        inputs = inputs.model_copy(update={"order": ORDER.model_copy(update={"variant": variant})})
+    if scenario == "unseen_image":
+        findings[0]["photo_index"] = MAX_BUYER_PHOTOS - 1
+    if scenario == "conflict":
+        photos *= 2
+        findings.append(_attribute_finding("color", "pass", index=1))
+    if scenario == "multiple_items":
+        inputs = inputs.model_copy(update={"order": ORDER.model_copy(update={"quantity": 2})})
+    if scenario == "unusable_video":
+        _write_flat_video(tmp_path, frames=12)
+    responses = Responses({"findings": findings}, allegation=allegation)
+
+    result = run_submission(
+        tmp_path,
+        inputs,
+        buyer_photos=photos,
+        review=lambda request: scenario != "unreviewed_text" or request.stage != "complaint",
+        model="test-model",
+        client=SimpleNamespace(responses=responses),
+    )
+
+    assert result.feedback is not None and result.feedback.result == expected
+    assert reason in result.feedback.reason.en and result.feedback.reason.th
+    if scenario == "unreviewed_text":
+        assert [schema for schema, _ in responses.calls] == ["PhotoMatch"]
+    if scenario == "unusable_video":
+        assert result.video_status == "no_usable_frames"
